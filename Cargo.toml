@@ -1,0 +1,11 @@
+[workspace]
+
+members = [
+  "engine",
+  "noder"
+]
+
+default-members = [
+  "engine",
+  "noder"
+]
