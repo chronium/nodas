@@ -1,3 +1,4 @@
+mod camera;
 mod model;
 mod texture;
 
@@ -9,6 +10,7 @@ use model::Vertex;
 use model::{DrawLight, DrawModel};
 use wgpu_mipmap::RecommendedMipmapGenerator;
 use winit::{
+    dpi::PhysicalPosition,
     event::*,
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
@@ -83,126 +85,6 @@ impl InstanceRaw {
     }
 }
 
-struct CameraController {
-    speed: f32,
-    up_pressed: bool,
-    down_pressed: bool,
-    forward_pressed: bool,
-    back_pressed: bool,
-    left_pressed: bool,
-    right_pressed: bool,
-}
-
-impl CameraController {
-    fn new(speed: f32) -> Self {
-        Self {
-            speed,
-            up_pressed: false,
-            down_pressed: false,
-            forward_pressed: false,
-            back_pressed: false,
-            left_pressed: false,
-            right_pressed: false,
-        }
-    }
-
-    fn process_event(&mut self, event: &WindowEvent) -> bool {
-        match event {
-            WindowEvent::KeyboardInput {
-                input:
-                    KeyboardInput {
-                        state,
-                        virtual_keycode: Some(keycode),
-                        ..
-                    },
-                ..
-            } => {
-                let is_pressed = *state == ElementState::Pressed;
-                match keycode {
-                    VirtualKeyCode::Space => {
-                        self.up_pressed = is_pressed;
-                        true
-                    }
-                    VirtualKeyCode::LShift => {
-                        self.down_pressed = is_pressed;
-                        true
-                    }
-                    VirtualKeyCode::W => {
-                        self.forward_pressed = is_pressed;
-                        true
-                    }
-                    VirtualKeyCode::A => {
-                        self.left_pressed = is_pressed;
-                        true
-                    }
-                    VirtualKeyCode::S => {
-                        self.back_pressed = is_pressed;
-                        true
-                    }
-                    VirtualKeyCode::D => {
-                        self.right_pressed = is_pressed;
-                        true
-                    }
-                    _ => false,
-                }
-            }
-            _ => false,
-        }
-    }
-
-    fn update_camera(&self, camera: &mut Camera) {
-        let forward = camera.target - camera.eye;
-        let forward_norm = forward.normalize();
-        let forward_mag = forward.magnitude();
-
-        if self.forward_pressed && forward_mag > self.speed {
-            camera.eye += forward_norm * self.speed;
-        }
-        if self.back_pressed {
-            camera.eye -= forward_norm * self.speed;
-        }
-
-        let right = forward_norm.cross(camera.up);
-
-        let forward = camera.target - camera.eye;
-        let forward_mag = forward.magnitude();
-
-        if self.right_pressed {
-            camera.eye = camera.target - (forward + right * self.speed).normalize() * forward_mag;
-        }
-        if self.left_pressed {
-            camera.eye = camera.target - (forward - right * self.speed).normalize() * forward_mag;
-        }
-    }
-}
-
-struct Camera {
-    eye: cgmath::Point3<f32>,
-    target: cgmath::Point3<f32>,
-    up: cgmath::Vector3<f32>,
-    aspect: f32,
-    fovy: f32,
-    znear: f32,
-    zfar: f32,
-}
-
-impl Camera {
-    fn build_view_projection_matrix(&self) -> cgmath::Matrix4<f32> {
-        let view = cgmath::Matrix4::look_at(self.eye, self.target, self.up);
-        let proj = cgmath::perspective(cgmath::Deg(self.fovy), self.aspect, self.znear, self.zfar);
-
-        OPENGL_TO_WGPU_MATRIX * proj * view
-    }
-}
-
-#[rustfmt::skip]
-pub const OPENGL_TO_WGPU_MATRIX: cgmath::Matrix4<f32> = cgmath::Matrix4::new(
-    1.0, 0.0, 0.0, 0.0,
-    0.0, 1.0, 0.0, 0.0,
-    0.0, 0.0, 0.5, 0.0,
-    0.0, 0.0, 0.5, 1.0,
-);
-
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 struct Uniforms {
@@ -222,9 +104,9 @@ impl Uniforms {
         }
     }
 
-    fn update_view_proj(&mut self, camera: &Camera) {
-        self.view_position = camera.eye.to_homogeneous();
-        self.view_proj = camera.build_view_projection_matrix();
+    fn update_view_proj(&mut self, camera: &camera::Camera, projection: &camera::Projection) {
+        self.view_position = camera.position.to_homogeneous();
+        self.view_proj = projection.calc_matrix() * camera.calc_matrix()
     }
 }
 
@@ -239,11 +121,12 @@ struct State {
     size: winit::dpi::PhysicalSize<u32>,
     render_pipeline: wgpu::RenderPipeline,
     light_render_pipeline: wgpu::RenderPipeline,
-    camera: Camera,
+    camera: camera::Camera,
+    projection: camera::Projection,
+    camera_controller: camera::CameraController,
     uniforms: Uniforms,
     uniform_buffer: wgpu::Buffer,
     uniform_bind_group: wgpu::BindGroup,
-    camera_controller: CameraController,
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
     depth_texture: texture::Texture,
@@ -252,6 +135,8 @@ struct State {
     light_bind_group: wgpu::BindGroup,
     light: Light,
     debug_material: model::Material,
+    last_mouse_pos: PhysicalPosition<f64>,
+    mouse_pressed: bool,
 }
 
 impl State {
@@ -330,18 +215,13 @@ impl State {
                 label: Some("texture_bind_group_layout"),
             });
 
-        let camera = Camera {
-            eye: (0.0, 5.0, -10.0).into(),
-            target: (0.0, 0.0, 0.0).into(),
-            up: cgmath::Vector3::unit_y(),
-            aspect: sc_desc.width as f32 / sc_desc.height as f32,
-            fovy: 45.0,
-            znear: 0.1,
-            zfar: 100.0,
-        };
+        let camera = camera::Camera::new((0.0, 5.0, 10.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
+        let projection =
+            camera::Projection::new(sc_desc.width, sc_desc.height, cgmath::Deg(75.0), 0.1, 100.0);
+        let camera_controller = camera::CameraController::new(4.0, 1.0);
 
         let mut uniforms = Uniforms::new();
-        uniforms.update_view_proj(&camera);
+        uniforms.update_view_proj(&camera, &projection);
 
         let uniform_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("uniform buffer"),
@@ -431,8 +311,6 @@ impl State {
             )
             .unwrap()
         };
-
-        let camera_controller = CameraController::new(0.2);
 
         let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
         let obj_model = model::Model::load(
@@ -524,10 +402,11 @@ impl State {
             render_pipeline,
             light_render_pipeline,
             camera,
+            projection,
+            camera_controller,
             uniforms,
             uniform_buffer,
             uniform_bind_group,
-            camera_controller,
             instances,
             instance_buffer,
             depth_texture,
@@ -536,11 +415,13 @@ impl State {
             light_bind_group,
             light,
             debug_material,
+            last_mouse_pos: (0.0, 0.0).into(),
+            mouse_pressed: false,
         }
     }
 
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
-        self.camera.aspect = self.sc_desc.width as f32 / self.sc_desc.height as f32;
+        self.projection.resize(new_size.width, new_size.height);
         self.size = new_size;
         self.sc_desc.width = new_size.width;
         self.sc_desc.height = new_size.height;
@@ -550,22 +431,55 @@ impl State {
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
-        self.camera_controller.process_event(event)
+        match event {
+            WindowEvent::KeyboardInput {
+                input:
+                    KeyboardInput {
+                        virtual_keycode: Some(key),
+                        state,
+                        ..
+                    },
+                ..
+            } => self.camera_controller.process_keyboard(*key, *state),
+            WindowEvent::MouseWheel { delta, .. } => {
+                self.camera_controller.process_scroll(delta);
+                true
+            }
+            WindowEvent::MouseInput {
+                button: MouseButton::Left,
+                state,
+                ..
+            } => {
+                self.mouse_pressed = *state == ElementState::Pressed;
+                true
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                let mouse_dx = position.x - self.last_mouse_pos.x;
+                let mouse_dy = position.y - self.last_mouse_pos.y;
+                self.last_mouse_pos = *position;
+                if self.mouse_pressed {
+                    self.camera_controller.process_mouse(mouse_dx, mouse_dy);
+                }
+                true
+            }
+            _ => false,
+        }
     }
 
-    fn update(&mut self) {
-        self.camera_controller.update_camera(&mut self.camera);
-        self.uniforms.update_view_proj(&self.camera);
+    fn update(&mut self, dt: std::time::Duration) {
+        self.camera_controller.update_camera(&mut self.camera, dt);
+        self.uniforms
+            .update_view_proj(&self.camera, &self.projection);
         self.queue.write_buffer(
             &self.uniform_buffer,
             0,
             bytemuck::cast_slice(&[self.uniforms]),
         );
         let old_position: cgmath::Vector3<_> = self.light.position.into();
-        self.light.position =
-            (cgmath::Quaternion::from_axis_angle((0.0, 1.0, 0.0).into(), cgmath::Deg(1.0))
-                * old_position)
-                .into();
+        self.light.position = cgmath::Quaternion::from_axis_angle(
+            (0.0, 1.0, 0.0).into(),
+            cgmath::Deg(60.0 * dt.as_secs_f32()),
+        ) * old_position;
         self.queue
             .write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[self.light]));
     }
@@ -711,10 +625,14 @@ fn main() {
         .unwrap();
 
     let mut state = block_on(State::new(&window));
+    let mut last_render_time = std::time::Instant::now();
 
     event_loop.run(move |event, _, control_flow| match event {
         Event::RedrawRequested(_) => {
-            state.update();
+            let now = std::time::Instant::now();
+            let dt = now - last_render_time;
+            last_render_time = now;
+            state.update(dt);
             match state.render() {
                 Ok(_) => {}
                 Err(wgpu::SwapChainError::Lost) => state.resize(state.size),
