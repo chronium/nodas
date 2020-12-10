@@ -19,6 +19,7 @@ anyhow = "1.0"
 iced_winit = "0.2.0"
 iced_wgpu = "0.3.0"
 tobj = "2.0.2"
+wgpu-mipmap = "0.1.0"
 
 noder = { path = "../noder" }
 

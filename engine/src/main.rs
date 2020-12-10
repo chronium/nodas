@@ -7,6 +7,7 @@ use futures::executor::block_on;
 
 use model::Vertex;
 use model::{DrawLight, DrawModel};
+use wgpu_mipmap::RecommendedMipmapGenerator;
 use winit::{
     event::*,
     event_loop::{ControlFlow, EventLoop},
@@ -250,6 +251,7 @@ struct State {
     light_buffer: wgpu::Buffer,
     light_bind_group: wgpu::BindGroup,
     light: Light,
+    debug_material: model::Material,
 }
 
 impl State {
@@ -278,6 +280,8 @@ impl State {
             .await
             .unwrap();
 
+        let mipgen = RecommendedMipmapGenerator::new(&device);
+
         let sc_desc = wgpu::SwapChainDescriptor {
             usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT,
             format: wgpu::TextureFormat::Bgra8UnormSrgb,
@@ -294,7 +298,7 @@ impl State {
                         binding: 0,
                         visibility: wgpu::ShaderStage::FRAGMENT,
                         ty: wgpu::BindingType::SampledTexture {
-                            multisampled: false,
+                            multisampled: true,
                             dimension: wgpu::TextureViewDimension::D2,
                             component_type: wgpu::TextureComponentType::Uint,
                         },
@@ -302,6 +306,22 @@ impl State {
                     },
                     wgpu::BindGroupLayoutEntry {
                         binding: 1,
+                        visibility: wgpu::ShaderStage::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler { comparison: false },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStage::FRAGMENT,
+                        ty: wgpu::BindingType::SampledTexture {
+                            multisampled: true,
+                            dimension: wgpu::TextureViewDimension::D2,
+                            component_type: wgpu::TextureComponentType::Float,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 3,
                         visibility: wgpu::ShaderStage::FRAGMENT,
                         ty: wgpu::BindingType::Sampler { comparison: false },
                         count: None,
@@ -420,6 +440,7 @@ impl State {
             &queue,
             &texture_bind_group_layout,
             res_dir.join("cube.obj"),
+            &mipgen,
         )
         .unwrap();
 
@@ -475,6 +496,24 @@ impl State {
             .unwrap()
         };
 
+        let debug_material = {
+            let diffuse_path = res_dir.join("cobblestone_floor_08_diff_4k.jpg");
+            let diffuse_texture =
+                texture::Texture::load(&device, &queue, diffuse_path, false, &mipgen).unwrap();
+
+            let normal_path = res_dir.join("cobblestone_floor_08_nor_4k.jpg");
+            let normal_texture =
+                texture::Texture::load(&device, &queue, normal_path, true, &mipgen).unwrap();
+
+            model::Material::new(
+                &device,
+                "alt-material",
+                diffuse_texture,
+                normal_texture,
+                &texture_bind_group_layout,
+            )
+        };
+
         Self {
             surface,
             device,
@@ -496,6 +535,7 @@ impl State {
             light_buffer,
             light_bind_group,
             light,
+            debug_material,
         }
     }
 
@@ -567,8 +607,9 @@ impl State {
             render_pass.set_pipeline(&self.render_pipeline);
 
             render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
-            render_pass.draw_model_instanced(
+            render_pass.draw_model_instanced_with_material(
                 &self.obj_model,
+                &self.debug_material,
                 0..self.instances.len() as u32,
                 &self.uniform_bind_group,
                 &self.light_bind_group,

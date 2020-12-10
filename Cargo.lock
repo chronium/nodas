@@ -2370,6 +2370,7 @@ dependencies = [
  "shaderc",
  "tobj",
  "wgpu 0.6.2",
+ "wgpu-mipmap",
  "winit",
 ]
 
@@ -2421,6 +2422,17 @@ dependencies = [
  "thiserror",
  "tracing",
  "wgpu-types",
+]
+
+[[package]]
+name = "wgpu-mipmap"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55685d9aa1b89de8c42ff0edd5a113103c9722fc0813a5cb7fab87e674f52df0"
+dependencies = [
+ "log",
+ "thiserror",
+ "wgpu 0.6.2",
 ]
 
 [[package]]
