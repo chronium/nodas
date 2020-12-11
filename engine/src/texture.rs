@@ -2,7 +2,8 @@ use std::{num::NonZeroU8, path::Path};
 
 use anyhow::*;
 use image::GenericImageView;
-use wgpu_mipmap::MipmapGenerator;
+
+use crate::state;
 
 pub struct Texture {
     pub texture: wgpu::Texture,
@@ -15,24 +16,20 @@ impl Texture {
 
     #[allow(dead_code)]
     pub fn from_bytes(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        state: &state::WgpuState,
         bytes: &[u8],
         label: &str,
         is_normal_map: bool,
-        mipgen: &dyn MipmapGenerator,
     ) -> Result<Self> {
         let img = image::load_from_memory(bytes)?;
-        Self::from_image(device, queue, &img, Some(label), is_normal_map, mipgen)
+        Self::from_image(state, &img, Some(label), is_normal_map)
     }
 
     pub fn from_image(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        state: &state::WgpuState,
         img: &image::DynamicImage,
         label: Option<&str>,
         is_normal_map: bool,
-        mipgen: &dyn MipmapGenerator,
     ) -> Result<Self> {
         let rgba = img.to_rgba8();
         let dimensions = img.dimensions();
@@ -57,9 +54,9 @@ impl Texture {
             usage: wgpu::TextureUsage::SAMPLED | wgpu::TextureUsage::COPY_DST,
         };
 
-        let texture = device.create_texture(&descriptor);
+        let texture = state.device().create_texture(&descriptor);
 
-        queue.write_texture(
+        state.queue().write_texture(
             wgpu::TextureCopyView {
                 texture: &texture,
                 mip_level: 0,
@@ -74,17 +71,18 @@ impl Texture {
             size,
         );
 
-        let mut encoder = device.create_command_encoder(&Default::default());
-        mipgen
-            .generate(&device, &mut encoder, &texture, &descriptor)
+        let mut encoder = state.device().create_command_encoder(&Default::default());
+        state
+            .mipgen()
+            .generate(state.device(), &mut encoder, &texture, &descriptor)
             .context(format!(
                 "Could not generate mipmap for {}",
                 label.unwrap_or("unknown")
             ))?;
-        queue.submit(std::iter::once(encoder.finish()));
+        state.queue().submit(std::iter::once(encoder.finish()));
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        let sampler = state.device().create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
@@ -102,14 +100,10 @@ impl Texture {
         })
     }
 
-    pub fn create_depth_texture(
-        device: &wgpu::Device,
-        sc_desc: &wgpu::SwapChainDescriptor,
-        label: &str,
-    ) -> Self {
+    pub fn create_depth_texture(state: &state::WgpuState, label: &str) -> Self {
         let size = wgpu::Extent3d {
-            width: sc_desc.width,
-            height: sc_desc.height,
+            width: state.width(),
+            height: state.height(),
             depth: 1,
         };
         let desc = wgpu::TextureDescriptor {
@@ -121,10 +115,10 @@ impl Texture {
             format: Self::DEPTH_FORMAT,
             usage: wgpu::TextureUsage::OUTPUT_ATTACHMENT | wgpu::TextureUsage::SAMPLED,
         };
-        let texture = device.create_texture(&desc);
+        let texture = state.device().create_texture(&desc);
 
         let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        let sampler = state.device().create_sampler(&wgpu::SamplerDescriptor {
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
             address_mode_w: wgpu::AddressMode::ClampToEdge,
@@ -145,16 +139,14 @@ impl Texture {
     }
 
     pub fn load<P: AsRef<Path>>(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
+        state: &state::WgpuState,
         path: P,
         is_normal_map: bool,
-        mipgen: &dyn MipmapGenerator,
     ) -> Result<Self> {
         let path_copy = path.as_ref().to_path_buf();
         let label = path_copy.to_str();
 
         let img = image::open(path)?;
-        Self::from_image(device, queue, &img, label, is_normal_map, mipgen)
+        Self::from_image(state, &img, label, is_normal_map)
     }
 }

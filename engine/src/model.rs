@@ -1,9 +1,8 @@
 use anyhow::*;
 use std::{ops::Range, path::Path};
 use wgpu::util::DeviceExt;
-use wgpu_mipmap::MipmapGenerator;
 
-use crate::texture;
+use crate::{state, texture};
 
 pub trait Vertex {
     fn desc<'a>() -> wgpu::VertexBufferDescriptor<'a>;
@@ -68,41 +67,43 @@ pub struct Material {
 
 impl Material {
     pub fn new(
-        device: &wgpu::Device,
+        state: &state::WgpuState,
         name: &str,
         diffuse_texture: texture::Texture,
         normal_texture: texture::Texture,
-        layout: &wgpu::BindGroupLayout,
-    ) -> Self {
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(&normal_texture.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&normal_texture.sampler),
-                },
-            ],
-            label: Some(name),
-        });
+        material_layout: &wgpu::BindGroupLayout,
+    ) -> Result<Self> {
+        let bind_group = state
+            .device()
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                layout: material_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&diffuse_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&diffuse_texture.sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(&normal_texture.view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 3,
+                        resource: wgpu::BindingResource::Sampler(&normal_texture.sampler),
+                    },
+                ],
+                label: Some(name),
+            });
 
-        Self {
+        Ok(Self {
             name: String::from(name),
             diffuse_texture,
             normal_texture,
             bind_group,
-        }
+        })
     }
 }
 
@@ -121,11 +122,9 @@ pub struct Model {
 
 impl Model {
     pub fn load<P: AsRef<Path>>(
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        layout: &wgpu::BindGroupLayout,
+        state: &state::WgpuState,
+        material_layout: &wgpu::BindGroupLayout,
         path: P,
-        generator: &dyn MipmapGenerator,
     ) -> Result<Self> {
         let (obj_models, obj_materials) = tobj::load_obj(path.as_ref(), true)?;
 
@@ -135,30 +134,20 @@ impl Model {
         let mut materials = Vec::new();
         for mat in obj_materials {
             let diffuse_path = mat.diffuse_texture;
-            let diffuse_texture = texture::Texture::load(
-                device,
-                queue,
-                containing_folder.join(diffuse_path),
-                false,
-                generator,
-            )?;
+            let diffuse_texture =
+                texture::Texture::load(state, containing_folder.join(diffuse_path), false)?;
 
             let normal_path = mat.normal_texture;
-            let normal_texture = texture::Texture::load(
-                device,
-                queue,
-                containing_folder.join(normal_path),
-                true,
-                generator,
-            )?;
+            let normal_texture =
+                texture::Texture::load(state, containing_folder.join(normal_path), true)?;
 
             materials.push(Material::new(
-                device,
+                state,
                 &mat.name,
                 diffuse_texture,
                 normal_texture,
-                layout,
-            ));
+                material_layout,
+            )?);
         }
 
         let mut meshes = Vec::new();
@@ -218,16 +207,22 @@ impl Model {
                 vertices[c[2] as usize].bitangent = bitangent.into();
             }
 
-            let vertex_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("{:?} Vertex Buffer", path.as_ref())),
-                contents: bytemuck::cast_slice(&vertices),
-                usage: wgpu::BufferUsage::VERTEX,
-            });
-            let index_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(&format!("{:?} Index Buffer", path.as_ref())),
-                contents: bytemuck::cast_slice(&m.mesh.indices),
-                usage: wgpu::BufferUsage::INDEX,
-            });
+            let vertex_buffer =
+                state
+                    .device()
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some(&format!("{:?} Vertex Buffer", path.as_ref())),
+                        contents: bytemuck::cast_slice(&vertices),
+                        usage: wgpu::BufferUsage::VERTEX,
+                    });
+            let index_buffer =
+                state
+                    .device()
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some(&format!("{:?} Index Buffer", path.as_ref())),
+                        contents: bytemuck::cast_slice(&m.mesh.indices),
+                        usage: wgpu::BufferUsage::INDEX,
+                    });
 
             meshes.push(Mesh {
                 name: m.name,
