@@ -10,7 +10,7 @@ use model::Vertex;
 use model::{DrawLight, DrawModel};
 use wgpu_mipmap::RecommendedMipmapGenerator;
 use winit::{
-    dpi::PhysicalPosition,
+    dpi::{LogicalPosition, PhysicalPosition},
     event::*,
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
@@ -135,7 +135,8 @@ struct State {
     light_bind_group: wgpu::BindGroup,
     light: Light,
     debug_material: model::Material,
-    last_mouse_pos: PhysicalPosition<f64>,
+    last_mouse_pos: LogicalPosition<f64>,
+    current_mouse_pos: LogicalPosition<f64>,
     mouse_pressed: bool,
 }
 
@@ -218,7 +219,7 @@ impl State {
         let camera = camera::Camera::new((0.0, 5.0, 10.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
         let projection =
             camera::Projection::new(sc_desc.width, sc_desc.height, cgmath::Deg(75.0), 0.1, 100.0);
-        let camera_controller = camera::CameraController::new(4.0, 1.0);
+        let camera_controller = camera::CameraController::new(4.0, 350.0);
 
         let mut uniforms = Uniforms::new();
         uniforms.update_view_proj(&camera, &projection);
@@ -416,6 +417,7 @@ impl State {
             light,
             debug_material,
             last_mouse_pos: (0.0, 0.0).into(),
+            current_mouse_pos: (0.0, 0.0).into(),
             mouse_pressed: false,
         }
     }
@@ -454,12 +456,10 @@ impl State {
                 true
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let mouse_dx = position.x - self.last_mouse_pos.x;
-                let mouse_dy = position.y - self.last_mouse_pos.y;
-                self.last_mouse_pos = *position;
-                if self.mouse_pressed {
-                    self.camera_controller.process_mouse(mouse_dx, mouse_dy);
-                }
+                self.current_mouse_pos = LogicalPosition {
+                    x: position.to_logical::<f64>(self.sc_desc.width as f64).x,
+                    y: position.to_logical::<f64>(self.sc_desc.height as f64).y,
+                };
                 true
             }
             _ => false,
@@ -467,7 +467,13 @@ impl State {
     }
 
     fn update(&mut self, dt: std::time::Duration) {
+        if self.mouse_pressed {
+            let mouse_dx = self.current_mouse_pos.x - self.last_mouse_pos.x;
+            let mouse_dy = self.current_mouse_pos.y - self.last_mouse_pos.y;
+            self.camera_controller.process_mouse(mouse_dx, mouse_dy);
+        }
         self.camera_controller.update_camera(&mut self.camera, dt);
+        self.last_mouse_pos = self.current_mouse_pos;
         self.uniforms
             .update_view_proj(&self.camera, &self.projection);
         self.queue.write_buffer(
@@ -632,6 +638,9 @@ fn main() {
             let now = std::time::Instant::now();
             let dt = now - last_render_time;
             last_render_time = now;
+
+            window.set_title(format!("{}", (1.0 / dt.as_secs_f32()) as u32).as_str());
+
             state.update(dt);
             match state.render() {
                 Ok(_) => {}
