@@ -1,5 +1,6 @@
 #![feature(in_band_lifetimes)]
 
+mod binding;
 mod camera;
 mod model;
 mod render;
@@ -117,20 +118,19 @@ const NUM_INSTANCES_PER_ROW: u32 = 10;
 
 struct Engine {
     state: state::WgpuState,
-    layouts: render::Layouts,
     pipelines: render::Pipelines,
     camera: camera::Camera,
     projection: camera::Projection,
     camera_controller: camera::CameraController,
     uniforms: Uniforms,
     uniform_buffer: wgpu::Buffer,
-    uniform_bind_group: wgpu::BindGroup,
+    uniform_group: binding::BufferGroup,
     instances: Vec<Instance>,
     instance_buffer: wgpu::Buffer,
     depth_texture: texture::Texture,
     obj_model: model::Model,
     light_buffer: wgpu::Buffer,
-    light_bind_group: wgpu::BindGroup,
+    light_group: binding::BufferGroup,
     light: Light,
     debug_material: model::Material,
     last_mouse_pos: LogicalPosition<f64>,
@@ -166,16 +166,12 @@ impl Engine {
                 usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
             });
 
-        let uniform_bind_group = state
-            .device()
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &layouts.uniforms,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(uniform_buffer.slice(..)),
-                }],
-                label: Some("uniform_bind_group"),
-            });
+        let uniform_group = binding::BufferGroup::from_buffer(
+            &state,
+            "uniforms",
+            &layouts.uniforms,
+            &[binding::BufferType::Buffer(&uniform_buffer)],
+        );
 
         let light = Light {
             position: (2.0, 2.0, 2.0).into(),
@@ -191,16 +187,12 @@ impl Engine {
                 usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
             });
 
-        let light_bind_group = state
-            .device()
-            .create_bind_group(&wgpu::BindGroupDescriptor {
-                layout: &layouts.light,
-                entries: &[wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::Buffer(light_buffer.slice(..)),
-                }],
-                label: None,
-            });
+        let light_group = binding::BufferGroup::from_buffer(
+            &state,
+            "light",
+            &layouts.light,
+            &[binding::BufferType::Buffer(&light_buffer)],
+        );
 
         let depth_texture = texture::Texture::create_depth_texture(&state, "depth_texture");
 
@@ -289,25 +281,24 @@ impl Engine {
                 diffuse_texture,
                 normal_texture,
                 &layouts.material,
-            )?
+            )
         };
 
         Ok(Self {
             state,
-            layouts,
             pipelines,
             camera,
             projection,
             camera_controller,
             uniforms,
             uniform_buffer,
-            uniform_bind_group,
+            uniform_group,
             instances,
             instance_buffer,
             depth_texture,
             obj_model,
             light_buffer,
-            light_bind_group,
+            light_group,
             light,
             debug_material,
             last_mouse_pos: (0.0, 0.0).into(),
@@ -431,16 +422,12 @@ impl Engine {
                 &self.obj_model,
                 &self.debug_material,
                 0..self.instances.len() as u32,
-                &self.uniform_bind_group,
-                &self.light_bind_group,
+                &self.uniform_group,
+                &self.light_group,
             );
 
             render_pass.set_pipeline(&self.pipelines.light);
-            render_pass.draw_light_model(
-                &self.obj_model,
-                &self.uniform_bind_group,
-                &self.light_bind_group,
-            );
+            render_pass.draw_light_model(&self.obj_model, &self.uniform_group, &self.light_group);
         }
 
         self.state.queue().submit(std::iter::once(encoder.finish()));
