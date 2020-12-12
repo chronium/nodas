@@ -7,10 +7,9 @@ mod render;
 mod state;
 mod texture;
 
-use std::rc::Rc;
-
 use futures::executor::block_on;
 
+use imgui::{im_str, Condition, FontSource};
 use model::Vertex;
 use model::{DrawLight, DrawModel};
 use winit::{
@@ -42,10 +41,13 @@ struct Instance {
     rotation: cgmath::Quaternion<f32>,
 }
 #[repr(C)]
-#[derive(Copy, Clone, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Copy, Clone)]
 struct InstanceRaw {
     model: [[f32; 4]; 4],
 }
+
+unsafe impl bytemuck::Pod for InstanceRaw {}
+unsafe impl bytemuck::Zeroable for InstanceRaw {}
 
 impl Instance {
     fn to_raw(&self) -> InstanceRaw {
@@ -117,6 +119,7 @@ impl Uniforms {
 const NUM_INSTANCES_PER_ROW: u32 = 10;
 
 struct Engine {
+    window: Window,
     state: state::WgpuState,
     pipelines: render::Pipelines,
     camera: camera::Camera,
@@ -136,11 +139,15 @@ struct Engine {
     last_mouse_pos: LogicalPosition<f64>,
     current_mouse_pos: LogicalPosition<f64>,
     mouse_pressed: bool,
+    imgui: imgui::Context,
+    imgui_renderer: imgui_wgpu::Renderer,
+    last_cursor: Option<imgui::MouseCursor>,
+    platform: imgui_winit_support::WinitPlatform,
 }
 
 impl Engine {
-    async fn new(window: Rc<Window>) -> Result<Self> {
-        let state = state::WgpuState::new(window, wgpu::TextureFormat::Bgra8UnormSrgb)
+    async fn new(window: Window) -> Result<Self> {
+        let state = state::WgpuState::new(&window, wgpu::TextureFormat::Bgra8UnormSrgb)
             .await
             .unwrap();
 
@@ -284,7 +291,39 @@ impl Engine {
             )
         };
 
+        let mut imgui = imgui::Context::create();
+        let mut platform = imgui_winit_support::WinitPlatform::init(&mut imgui);
+        platform.attach_window(
+            imgui.io_mut(),
+            &window,
+            imgui_winit_support::HiDpiMode::Default,
+        );
+        imgui.set_ini_filename(None);
+
+        let hidpi_factor = window.scale_factor();
+        let font_size = (13.0 * hidpi_factor) as f32;
+        imgui.io_mut().font_global_scale = (1.0 / hidpi_factor) as f32;
+        imgui.fonts().add_font(&[FontSource::DefaultFontData {
+            config: Some(imgui::FontConfig {
+                oversample_h: 1,
+                pixel_snap_h: true,
+                size_pixels: font_size,
+                ..Default::default()
+            }),
+        }]);
+
+        let imgui_renderer = imgui_wgpu::Renderer::new(
+            &mut imgui,
+            &state.device(),
+            &state.queue(),
+            imgui_wgpu::RendererConfig {
+                texture_format: state.format(),
+                ..Default::default()
+            },
+        );
+
         Ok(Self {
+            window,
             state,
             pipelines,
             camera,
@@ -304,6 +343,10 @@ impl Engine {
             last_mouse_pos: (0.0, 0.0).into(),
             current_mouse_pos: (0.0, 0.0).into(),
             mouse_pressed: false,
+            imgui,
+            imgui_renderer,
+            last_cursor: None,
+            platform,
         })
     }
 
@@ -356,7 +399,46 @@ impl Engine {
     }
 
     fn update(&mut self, dt: std::time::Duration) {
-        if self.mouse_pressed {
+        let old_position: cgmath::Vector3<_> = self.light.position.into();
+        self.light.position = cgmath::Quaternion::from_axis_angle(
+            (0.0, 1.0, 0.0).into(),
+            cgmath::Deg(60.0 * dt.as_secs_f32()),
+        ) * old_position;
+        self.state
+            .queue()
+            .write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[self.light]));
+        self.imgui.io_mut().update_delta_time(dt);
+    }
+
+    fn render(&mut self, dt: std::time::Duration) -> Result<(), wgpu::SwapChainError> {
+        let mut encoder =
+            self.state
+                .device()
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("Render Encoder"),
+                });
+
+        let sc = self.state.frame()?.output;
+
+        let ui = self.imgui.frame();
+        {
+            let window = imgui::Window::new(im_str!("Hello Imgui from WGPU!"));
+            window
+                .size([300.0, 100.0], Condition::FirstUseEver)
+                .build(&ui, || {
+                    ui.text(im_str!("Hello world!"));
+                    ui.text(im_str!("This is a demo of imgui-rs using imgui-wgpu!"));
+                    ui.separator();
+                    let mouse_pos = ui.io().mouse_pos;
+                    ui.text(im_str!(
+                        "Mouse Position: ({:.1}, {:.1})",
+                        mouse_pos[0],
+                        mouse_pos[1],
+                    ));
+                });
+        }
+
+        if self.mouse_pressed && !ui.is_any_item_active() {
             let mouse_dx = self.current_mouse_pos.x - self.last_mouse_pos.x;
             let mouse_dy = self.current_mouse_pos.y - self.last_mouse_pos.y;
             self.camera_controller.process_mouse(mouse_dx, mouse_dy);
@@ -370,25 +452,6 @@ impl Engine {
             0,
             bytemuck::cast_slice(&[self.uniforms]),
         );
-        let old_position: cgmath::Vector3<_> = self.light.position.into();
-        self.light.position = cgmath::Quaternion::from_axis_angle(
-            (0.0, 1.0, 0.0).into(),
-            cgmath::Deg(60.0 * dt.as_secs_f32()),
-        ) * old_position;
-        self.state
-            .queue()
-            .write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[self.light]));
-    }
-
-    fn render(&mut self) -> Result<(), wgpu::SwapChainError> {
-        let mut encoder =
-            self.state
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Render Encoder"),
-                });
-
-        let sc = self.state.frame()?.output;
 
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -430,68 +493,113 @@ impl Engine {
             render_pass.draw_light_model(&self.obj_model, &self.uniform_group, &self.light_group);
         }
 
+        {
+            if self.last_cursor != ui.mouse_cursor() {
+                self.last_cursor = ui.mouse_cursor();
+                self.platform.prepare_render(&ui, &self.window);
+            }
+
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
+                    attachment: &sc.view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: true,
+                    },
+                }],
+                depth_stencil_attachment: None,
+            });
+            self.imgui_renderer
+                .render(
+                    ui.render(),
+                    &self.state.queue(),
+                    &self.state.device(),
+                    &mut pass,
+                )
+                .expect("Failed to render UI!");
+        }
+
         self.state.queue().submit(std::iter::once(encoder.finish()));
         Ok(())
+    }
+
+    pub fn set_title(&self, title: &str) {
+        self.window.set_title(title);
+    }
+
+    pub fn request_redraw(&self) {
+        self.window.request_redraw();
+    }
+
+    pub fn window_id(&self) -> winit::window::WindowId {
+        self.window.id()
+    }
+
+    pub fn inmgui_event<T>(&mut self, event: &Event<T>) {
+        self.platform
+            .handle_event(self.imgui.io_mut(), &self.window, event)
     }
 }
 
 fn main() {
     env_logger::init();
     let event_loop = EventLoop::new();
-    let window = Rc::new(
-        WindowBuilder::new()
-            .with_title("WGPU World!")
-            .build(&event_loop)
-            .unwrap(),
-    );
+    let window = WindowBuilder::new()
+        .with_title("WGPU World!")
+        .build(&event_loop)
+        .unwrap();
 
-    let mut state = block_on(Engine::new(Rc::clone(&window))).unwrap();
+    let mut engine = block_on(Engine::new(window)).unwrap();
     let mut last_render_time = std::time::Instant::now();
 
-    event_loop.run(move |event, _, control_flow| match event {
-        Event::RedrawRequested(_) => {
-            let now = std::time::Instant::now();
-            let dt = now - last_render_time;
-            last_render_time = now;
+    event_loop.run(move |event, _, control_flow| {
+        match event {
+            Event::RedrawRequested(_) => {
+                let now = std::time::Instant::now();
+                let dt = now - last_render_time;
+                last_render_time = now;
 
-            window.set_title(format!("{}", (1.0 / dt.as_secs_f32()) as u32).as_str());
+                engine.set_title(format!("{}", (1.0 / dt.as_secs_f32()) as u32).as_str());
 
-            state.update(dt);
-            match state.render() {
-                Ok(_) => {}
-                Err(wgpu::SwapChainError::Lost) => state.resize(state.size()),
-                Err(wgpu::SwapChainError::OutOfMemory) => *control_flow = ControlFlow::Exit,
-                Err(e) => eprintln!("{:?}", e),
-            }
-        }
-        Event::MainEventsCleared => {
-            window.request_redraw();
-        }
-        Event::WindowEvent {
-            ref event,
-            window_id,
-        } if window_id == window.id() => {
-            if !state.input(event) {
-                match event {
-                    WindowEvent::Resized(physical_size) => {
-                        state.resize(*physical_size);
-                    }
-                    WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
-                        state.resize(**new_inner_size);
-                    }
-                    WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
-                    WindowEvent::KeyboardInput { input, .. } => match input {
-                        KeyboardInput {
-                            state: ElementState::Pressed,
-                            virtual_keycode: Some(VirtualKeyCode::Escape),
-                            ..
-                        } => *control_flow = ControlFlow::Exit,
-                        _ => {}
-                    },
-                    _ => {}
+                engine.update(dt);
+                match engine.render(dt) {
+                    Ok(_) => {}
+                    Err(wgpu::SwapChainError::Lost) => engine.resize(engine.size()),
+                    Err(wgpu::SwapChainError::OutOfMemory) => *control_flow = ControlFlow::Exit,
+                    Err(e) => eprintln!("{:?}", e),
                 }
             }
+            Event::MainEventsCleared => {
+                engine.request_redraw();
+            }
+            Event::WindowEvent {
+                ref event,
+                window_id,
+            } if window_id == engine.window_id() => {
+                if !engine.input(event) {
+                    match event {
+                        WindowEvent::Resized(physical_size) => {
+                            engine.resize(*physical_size);
+                        }
+                        WindowEvent::ScaleFactorChanged { new_inner_size, .. } => {
+                            engine.resize(**new_inner_size);
+                        }
+                        WindowEvent::CloseRequested => *control_flow = ControlFlow::Exit,
+                        WindowEvent::KeyboardInput { input, .. } => match input {
+                            KeyboardInput {
+                                state: ElementState::Pressed,
+                                virtual_keycode: Some(VirtualKeyCode::Escape),
+                                ..
+                            } => *control_flow = ControlFlow::Exit,
+                            _ => {}
+                        },
+                        _ => {}
+                    }
+                }
+            }
+            _ => {}
         }
-        _ => {}
+        engine.inmgui_event(&event);
     });
 }

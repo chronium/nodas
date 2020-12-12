@@ -16,9 +16,10 @@ wgpu = "0.6"
 futures = "0.3"
 bytemuck = "1.4"
 anyhow = "1.0"
-iced_winit = "0.2.0"
-iced_wgpu = "0.3.0"
-tobj = "2.0.2"
+imgui = "0.6"
+imgui-wgpu = "0.12"
+imgui-winit-support = "0.6"
+tobj = "2.0.3"
 wgpu-mipmap = "0.1.0"
 
 noder = { path = "../noder" }

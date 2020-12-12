@@ -1,4 +1,4 @@
-use std::{fs, path::Path, rc::Rc};
+use std::{fs, path::Path};
 
 use anyhow::*;
 
@@ -15,11 +15,11 @@ pub struct WgpuState {
 }
 
 impl WgpuState {
-    pub async fn new(window: Rc<Window>, present_format: wgpu::TextureFormat) -> Result<Self> {
+    pub async fn new(window: &Window, present_format: wgpu::TextureFormat) -> Result<Self> {
         let size = window.inner_size().clone();
 
         let instance = wgpu::Instance::new(wgpu::BackendBit::PRIMARY);
-        let surface = unsafe { instance.create_surface(window.as_ref()) };
+        let surface = unsafe { instance.create_surface(window) };
 
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
