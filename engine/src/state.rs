@@ -167,6 +167,11 @@ impl WgpuState {
             }))
     }
 
+    pub fn encoder(&self) -> wgpu::CommandEncoder {
+        self.device()
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor { label: None })
+    }
+
     pub fn recreate_swapchain(&mut self, width: u32, height: u32) {
         self.swap_chain_descriptor.width = width;
         self.swap_chain_descriptor.height = height;

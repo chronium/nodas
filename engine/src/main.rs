@@ -411,12 +411,7 @@ impl Engine {
     }
 
     fn render(&mut self, dt: std::time::Duration) -> Result<(), wgpu::SwapChainError> {
-        let mut encoder =
-            self.state
-                .device()
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("Render Encoder"),
-                });
+        let mut encoder = self.state.encoder();
 
         let sc = self.state.frame()?.output;
 
@@ -424,10 +419,16 @@ impl Engine {
         {
             let window = imgui::Window::new(im_str!("Hello Imgui from WGPU!"));
             window
-                .size([300.0, 100.0], Condition::FirstUseEver)
+                .size(
+                    [self.state.width() as f32, self.state.height() as f32],
+                    Condition::Always,
+                )
+                .title_bar(false)
+                .position([0.0, 0.0], Condition::Always)
+                .draw_background(false)
+                .menu_bar(false)
                 .build(&ui, || {
-                    ui.text(im_str!("Hello world!"));
-                    ui.text(im_str!("This is a demo of imgui-rs using imgui-wgpu!"));
+                    ui.text(im_str!("FPS: {}", (1.0 / dt.as_secs_f32()).round()));
                     ui.separator();
                     let mouse_pos = ui.io().mouse_pos;
                     ui.text(im_str!(
@@ -438,7 +439,7 @@ impl Engine {
                 });
         }
 
-        if self.mouse_pressed && !ui.is_any_item_active() {
+        if self.mouse_pressed && !ui.is_any_item_hovered() {
             let mouse_dx = self.current_mouse_pos.x - self.last_mouse_pos.x;
             let mouse_dy = self.current_mouse_pos.y - self.last_mouse_pos.y;
             self.camera_controller.process_mouse(mouse_dx, mouse_dy);
@@ -524,6 +525,7 @@ impl Engine {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn set_title(&self, title: &str) {
         self.window.set_title(title);
     }
@@ -546,7 +548,7 @@ fn main() {
     env_logger::init();
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("WGPU World!")
+        .with_title("Nodas engine")
         .build(&event_loop)
         .unwrap();
 
@@ -559,8 +561,6 @@ fn main() {
                 let now = std::time::Instant::now();
                 let dt = now - last_render_time;
                 last_render_time = now;
-
-                engine.set_title(format!("{}", (1.0 / dt.as_secs_f32()) as u32).as_str());
 
                 engine.update(dt);
                 match engine.render(dt) {
