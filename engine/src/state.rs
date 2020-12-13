@@ -97,6 +97,8 @@ impl WgpuState {
         layout: &wgpu::PipelineLayout,
         pipeline: T,
         color_format: wgpu::TextureFormat,
+        color_blend: wgpu::BlendDescriptor,
+        alpha_blend: wgpu::BlendDescriptor,
         depth_format: D,
         vertex_descs: &[wgpu::VertexBufferDescriptor],
         vertex_shader: P,
@@ -145,8 +147,8 @@ impl WgpuState {
                 primitive_topology: wgpu::PrimitiveTopology::TriangleList,
                 color_states: &[wgpu::ColorStateDescriptor {
                     format: color_format,
-                    color_blend: wgpu::BlendDescriptor::REPLACE,
-                    alpha_blend: wgpu::BlendDescriptor::REPLACE,
+                    color_blend,
+                    alpha_blend,
                     write_mask: wgpu::ColorWrite::ALL,
                 }],
                 depth_stencil_state: depth_format.into().map(|format| {

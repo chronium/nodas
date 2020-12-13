@@ -4,6 +4,7 @@ mod binding;
 mod camera;
 mod model;
 mod render;
+mod renderpass;
 mod state;
 mod texture;
 
@@ -215,6 +216,8 @@ impl Engine {
             &forward_layout,
             None,
             state.format(),
+            wgpu::BlendDescriptor::REPLACE,
+            wgpu::BlendDescriptor::REPLACE,
             texture::Texture::DEPTH_FORMAT,
             &[model::ModelVertex::desc(), InstanceRaw::desc()],
             "shader.vert.spv",
@@ -225,6 +228,8 @@ impl Engine {
             &light_layout,
             None,
             state.format(),
+            wgpu::BlendDescriptor::REPLACE,
+            wgpu::BlendDescriptor::REPLACE,
             texture::Texture::DEPTH_FORMAT,
             &[model::ModelVertex::desc()],
             "light.vert.spv",
@@ -455,29 +460,21 @@ impl Engine {
         );
 
         {
-            let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                    attachment: &sc.view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.1,
-                            g: 0.2,
-                            b: 0.3,
-                            a: 1.0,
-                        }),
-                        store: true,
-                    },
-                }],
-                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachmentDescriptor {
-                    attachment: &self.depth_texture.view,
-                    depth_ops: Some(wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(1.0),
-                        store: true,
-                    }),
-                    stencil_ops: None,
+            let color_attachments: &[&dyn renderpass::IntoColorAttachment] = &[&(
+                &sc.view,
+                wgpu::LoadOp::Clear(wgpu::Color {
+                    r: 0.1,
+                    g: 0.2,
+                    b: 0.3,
+                    a: 1.0,
                 }),
-            });
+            )];
+
+            let depth_attachment: &dyn renderpass::IntoDepthAttachment =
+                &(&self.depth_texture.view, wgpu::LoadOp::Clear(1.0));
+
+            let mut render_pass =
+                renderpass::with_render_pass(&mut encoder, color_attachments, depth_attachment);
 
             render_pass.set_pipeline(&self.pipelines.forward);
 
@@ -500,23 +497,18 @@ impl Engine {
                 self.platform.prepare_render(&ui, &self.window);
             }
 
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                color_attachments: &[wgpu::RenderPassColorAttachmentDescriptor {
-                    attachment: &sc.view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Load,
-                        store: true,
-                    },
-                }],
-                depth_stencil_attachment: None,
-            });
+            let color_attachments: &[&dyn renderpass::IntoColorAttachment] =
+                &[&(&sc.view, wgpu::LoadOp::Load)];
+
+            let mut render_pass =
+                renderpass::with_render_pass(&mut encoder, color_attachments, None);
+
             self.imgui_renderer
                 .render(
                     ui.render(),
                     &self.state.queue(),
                     &self.state.device(),
-                    &mut pass,
+                    &mut render_pass,
                 )
                 .expect("Failed to render UI!");
         }
