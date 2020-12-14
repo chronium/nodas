@@ -182,6 +182,11 @@ impl WgpuState {
             .create_swap_chain(&self.surface, &self.swap_chain_descriptor);
     }
 
+    pub fn write_buffer<A: bytemuck::Pod>(&self, buffer: &wgpu::Buffer, data: &[A]) {
+        self.queue()
+            .write_buffer(&buffer, 0, bytemuck::cast_slice(&data));
+    }
+
     pub fn frame(&mut self) -> Result<wgpu::SwapChainFrame, wgpu::SwapChainError> {
         self.swap_chain.get_current_frame()
     }

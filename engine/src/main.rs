@@ -8,6 +8,7 @@ mod renderpass;
 mod state;
 mod texture;
 
+use binding::Binding;
 use futures::executor::block_on;
 
 use imgui::{im_str, Condition, FontSource};
@@ -19,8 +20,6 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     window::{Window, WindowBuilder},
 };
-
-use wgpu::util::DeviceExt;
 
 use cgmath::{InnerSpace, Rotation3, Zero};
 
@@ -127,13 +126,13 @@ struct Engine {
     projection: camera::Projection,
     camera_controller: camera::CameraController,
     uniforms: Uniforms,
-    uniform_buffer: wgpu::Buffer,
+    uniform_buffer: binding::Buffer,
     uniform_group: binding::BufferGroup,
     instances: Vec<Instance>,
-    instance_buffer: wgpu::Buffer,
+    instance_buffer: binding::Buffer,
     depth_texture: texture::Texture,
     obj_model: model::Model,
-    light_buffer: wgpu::Buffer,
+    light_buffer: binding::Buffer,
     light_group: binding::BufferGroup,
     light: Light,
     debug_material: model::Material,
@@ -166,19 +165,14 @@ impl Engine {
         let mut uniforms = Uniforms::new();
         uniforms.update_view_proj(&camera, &projection);
 
-        let uniform_buffer = state
-            .device()
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("uniform buffer"),
-                contents: bytemuck::cast_slice(&[uniforms]),
-                usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
-            });
+        let uniform_buffer =
+            binding::Buffer::new_init(&state, None, &[uniforms], binding::BufferUsage::Uniform);
 
         let uniform_group = binding::BufferGroup::from_buffer(
             &state,
             "uniforms",
             &layouts.uniforms,
-            &[binding::BufferType::Buffer(&uniform_buffer)],
+            &[&uniform_buffer],
         );
 
         let light = Light {
@@ -187,20 +181,11 @@ impl Engine {
             color: (1.0, 1.0, 1.0).into(),
         };
 
-        let light_buffer = state
-            .device()
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("Light VB"),
-                contents: bytemuck::cast_slice(&[light]),
-                usage: wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
-            });
+        let light_buffer =
+            binding::Buffer::new_init(&state, None, &[light], binding::BufferUsage::Uniform);
 
-        let light_group = binding::BufferGroup::from_buffer(
-            &state,
-            "light",
-            &layouts.light,
-            &[binding::BufferType::Buffer(&light_buffer)],
-        );
+        let light_group =
+            binding::BufferGroup::from_buffer(&state, "light", &layouts.light, &[&light_buffer]);
 
         let depth_texture = texture::Texture::create_depth_texture(&state, "depth_texture");
 
@@ -272,13 +257,7 @@ impl Engine {
 
         let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
         let instance_buffer =
-            state
-                .device()
-                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("Instance Buffer"),
-                    contents: bytemuck::cast_slice(&instance_data),
-                    usage: wgpu::BufferUsage::VERTEX,
-                });
+            binding::Buffer::new_init(&state, None, &instance_data, binding::BufferUsage::Vertex);
 
         let debug_material = {
             let diffuse_path = res_dir.join("cobblestone_floor_08_diff_4k.jpg");
@@ -409,9 +388,7 @@ impl Engine {
             (0.0, 1.0, 0.0).into(),
             cgmath::Deg(60.0 * dt.as_secs_f32()),
         ) * old_position;
-        self.state
-            .queue()
-            .write_buffer(&self.light_buffer, 0, bytemuck::cast_slice(&[self.light]));
+        self.light_buffer.write(&self.state, &[self.light]);
         self.imgui.io_mut().update_delta_time(dt);
     }
 
@@ -453,11 +430,7 @@ impl Engine {
         self.last_mouse_pos = self.current_mouse_pos;
         self.uniforms
             .update_view_proj(&self.camera, &self.projection);
-        self.state.queue().write_buffer(
-            &self.uniform_buffer,
-            0,
-            bytemuck::cast_slice(&[self.uniforms]),
-        );
+        self.uniform_buffer.write(&self.state, &[self.uniforms]);
 
         {
             let color_attachments: &[&dyn renderpass::IntoColorAttachment] = &[&(
@@ -474,11 +447,11 @@ impl Engine {
                 &(&self.depth_texture.view, wgpu::LoadOp::Clear(1.0));
 
             let mut render_pass =
-                renderpass::with_render_pass(&mut encoder, color_attachments, depth_attachment);
+                renderpass::render_pass(&mut encoder, color_attachments, depth_attachment);
 
             render_pass.set_pipeline(&self.pipelines.forward);
 
-            render_pass.set_vertex_buffer(1, self.instance_buffer.slice(..));
+            render_pass.bind_buffer(1, &self.instance_buffer);
             render_pass.draw_model_instanced_with_material(
                 &self.obj_model,
                 &self.debug_material,
@@ -500,8 +473,7 @@ impl Engine {
             let color_attachments: &[&dyn renderpass::IntoColorAttachment] =
                 &[&(&sc.view, wgpu::LoadOp::Load)];
 
-            let mut render_pass =
-                renderpass::with_render_pass(&mut encoder, color_attachments, None);
+            let mut render_pass = renderpass::render_pass(&mut encoder, color_attachments, None);
 
             self.imgui_renderer
                 .render(

@@ -1,14 +1,51 @@
+use wgpu::util::DeviceExt;
+
 use crate::{state, texture};
 
-pub enum BufferType<'a> {
-    Buffer(&'a wgpu::Buffer),
+pub enum BufferUsage {
+    Vertex,
+    Uniform,
 }
 
-impl From<&'_ BufferType<'a>> for wgpu::BindingResource<'a> {
-    fn from(buf: &BufferType<'a>) -> Self {
+impl From<BufferUsage> for wgpu::BufferUsage {
+    fn from(buf: BufferUsage) -> Self {
         match buf {
-            BufferType::Buffer(ref b) => wgpu::BindingResource::Buffer(b.slice(..)),
+            BufferUsage::Vertex => wgpu::BufferUsage::VERTEX,
+            BufferUsage::Uniform => wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
         }
+    }
+}
+
+pub struct Buffer {
+    buffer: wgpu::Buffer,
+}
+
+impl Buffer {
+    pub fn new_init<A: bytemuck::Pod, L: Into<Option<&'a str>>, U: Into<wgpu::BufferUsage>>(
+        state: &state::WgpuState,
+        label: L,
+        data: &[A],
+        usage: U,
+    ) -> Self {
+        Self {
+            buffer: state
+                .device()
+                .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: label.into(),
+                    usage: usage.into(),
+                    contents: bytemuck::cast_slice(&data),
+                }),
+        }
+    }
+
+    pub fn write<A: bytemuck::Pod>(&self, state: &state::WgpuState, data: &[A]) {
+        state.write_buffer(&self.buffer, data);
+    }
+}
+
+impl From<&&'a Buffer> for wgpu::BindingResource<'a> {
+    fn from(buf: &&'a Buffer) -> Self {
+        wgpu::BindingResource::Buffer(buf.buffer.slice(..))
     }
 }
 
@@ -22,7 +59,7 @@ impl BufferGroup {
         state: &state::WgpuState,
         label: T,
         layout: &wgpu::BindGroupLayout,
-        group: &[BufferType],
+        group: &[&Buffer],
     ) -> Self {
         let label: Option<&str> = label.into();
         Self {
@@ -94,6 +131,7 @@ where
 {
     fn bind_textures(&mut self, index: u32, textures: &'b TextureBinding);
     fn bind_group(&mut self, index: u32, group: &'b BufferGroup);
+    fn bind_buffer(&mut self, slot: u32, buffer: &'b Buffer);
 }
 
 impl<'a, 'b> Binding<'a, 'b> for wgpu::RenderPass<'a>
@@ -106,5 +144,9 @@ where
 
     fn bind_group(&mut self, index: u32, group: &'b BufferGroup) {
         self.set_bind_group(index, &group.bind_group, &[]);
+    }
+
+    fn bind_buffer(&mut self, slot: u32, buffer: &'b Buffer) {
+        self.set_vertex_buffer(slot, buffer.buffer.slice(..));
     }
 }

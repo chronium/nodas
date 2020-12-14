@@ -35,7 +35,7 @@ impl<'a> IntoDepthAttachment<'a> for DepthAttachment<'a> {
     }
 }
 
-pub fn with_render_pass<'a, D>(
+pub fn render_pass<'a, D>(
     encoder: &'a mut wgpu::CommandEncoder,
     color_attachments: &'a [&dyn IntoColorAttachment<'a>],
     depth_attachment: D,
