@@ -4,11 +4,37 @@ pub struct Layouts {
     pub material: wgpu::BindGroupLayout,
     pub uniforms: wgpu::BindGroupLayout,
     pub light: wgpu::BindGroupLayout,
+    pub frame: wgpu::BindGroupLayout,
 }
 
 pub struct Pipelines {
     pub forward: wgpu::RenderPipeline,
     pub light: wgpu::RenderPipeline,
+    pub depth: wgpu::RenderPipeline,
+}
+
+pub fn frame_layout(state: &state::WgpuState) -> wgpu::BindGroupLayout {
+    state.create_layout(
+        None,
+        &[
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStage::FRAGMENT,
+                ty: wgpu::BindingType::SampledTexture {
+                    multisampled: false,
+                    dimension: wgpu::TextureViewDimension::D2,
+                    component_type: wgpu::TextureComponentType::Float,
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStage::FRAGMENT,
+                ty: wgpu::BindingType::Sampler { comparison: true },
+                count: None,
+            },
+        ],
+    )
 }
 
 pub fn material_layout(state: &state::WgpuState) -> wgpu::BindGroupLayout {

@@ -1,10 +1,11 @@
 use wgpu::util::DeviceExt;
 
-use crate::{state, texture};
+use crate::{state, texture, traits::Binding};
 
 pub enum BufferUsage {
     Vertex,
     Uniform,
+    Index,
 }
 
 impl From<BufferUsage> for wgpu::BufferUsage {
@@ -12,12 +13,13 @@ impl From<BufferUsage> for wgpu::BufferUsage {
         match buf {
             BufferUsage::Vertex => wgpu::BufferUsage::VERTEX,
             BufferUsage::Uniform => wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
+            BufferUsage::Index => wgpu::BufferUsage::INDEX,
         }
     }
 }
 
 pub struct Buffer {
-    buffer: wgpu::Buffer,
+    pub buffer: wgpu::Buffer,
 }
 
 impl Buffer {
@@ -123,15 +125,41 @@ impl TextureBinding {
             label: String::from(label.unwrap_or("")),
         }
     }
-}
 
-pub trait Binding<'a, 'b>
-where
-    'b: 'a,
-{
-    fn bind_textures(&mut self, index: u32, textures: &'b TextureBinding);
-    fn bind_group(&mut self, index: u32, group: &'b BufferGroup);
-    fn bind_buffer(&mut self, slot: u32, buffer: &'b Buffer);
+    pub fn new_ref<T: Into<Option<&'a str>>>(
+        state: &state::WgpuState,
+        label: T,
+        layout: &wgpu::BindGroupLayout,
+        textures: &[&texture::Texture],
+    ) -> Self {
+        let label: Option<&str> = label.into();
+        Self {
+            bind_group: state
+                .device()
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label,
+                    layout,
+                    entries: textures
+                        .iter()
+                        .enumerate()
+                        .flat_map(|(i, tex)| {
+                            vec![
+                                wgpu::BindGroupEntry {
+                                    binding: (i * 2) as u32,
+                                    resource: wgpu::BindingResource::TextureView(&tex.view),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: (i * 2 + 1) as u32,
+                                    resource: wgpu::BindingResource::Sampler(&tex.sampler),
+                                },
+                            ]
+                        })
+                        .collect::<Vec<_>>()
+                        .as_slice(),
+                }),
+            label: String::from(label.unwrap_or("")),
+        }
+    }
 }
 
 impl<'a, 'b> Binding<'a, 'b> for wgpu::RenderPass<'a>
@@ -148,5 +176,13 @@ where
 
     fn bind_buffer(&mut self, slot: u32, buffer: &'b Buffer) {
         self.set_vertex_buffer(slot, buffer.buffer.slice(..));
+    }
+
+    fn bind_vertex_buffer(&mut self, slot: u32, buffer: &'b Buffer) {
+        self.set_vertex_buffer(slot, buffer.buffer.slice(..));
+    }
+
+    fn bind_index_buffer(&mut self, buffer: &'b Buffer) {
+        self.set_index_buffer(buffer.buffer.slice(..));
     }
 }

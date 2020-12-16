@@ -2,18 +2,18 @@
 
 mod binding;
 mod camera;
+mod frame;
 mod model;
 mod render;
 mod renderpass;
 mod state;
 mod texture;
+mod traits;
 
-use binding::Binding;
 use futures::executor::block_on;
 
 use imgui::{im_str, Condition, FontSource};
-use model::Vertex;
-use model::{DrawLight, DrawModel};
+use traits::{Binding, DrawFramebuffer, DrawLight, DrawModel, Vertex};
 use winit::{
     dpi::LogicalPosition,
     event::*,
@@ -29,7 +29,7 @@ use anyhow::*;
 #[derive(Copy, Clone)]
 struct Light {
     position: cgmath::Vector3<f32>,
-    _padding: u32,
+    ty: f32,
     color: cgmath::Vector3<f32>,
 }
 
@@ -143,6 +143,9 @@ struct Engine {
     imgui_renderer: imgui_wgpu::Renderer,
     last_cursor: Option<imgui::MouseCursor>,
     platform: imgui_winit_support::WinitPlatform,
+    light_depth_map: texture::Texture,
+    framebuffer: frame::Framebuffer,
+    layouts: render::Layouts,
 }
 
 impl Engine {
@@ -155,6 +158,7 @@ impl Engine {
             material: render::material_layout(&state),
             uniforms: render::uniforms_layout(&state),
             light: render::light_layout(&state),
+            frame: render::frame_layout(&state),
         };
 
         let camera = camera::Camera::new((0.0, 5.0, 10.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
@@ -176,8 +180,8 @@ impl Engine {
         );
 
         let light = Light {
-            position: (2.0, 2.0, 2.0).into(),
-            _padding: 0,
+            position: (-0.25, 0.25, -0.25).into(),
+            ty: 0.0,
             color: (1.0, 1.0, 1.0).into(),
         };
 
@@ -196,6 +200,8 @@ impl Engine {
 
         let light_layout =
             state.create_pipeline_layout(None, &[&layouts.uniforms, &layouts.light])?;
+
+        let depth_layout = state.create_pipeline_layout(None, &[&layouts.frame])?;
 
         let forward = state.create_render_pipeline(
             &forward_layout,
@@ -221,9 +227,22 @@ impl Engine {
             "light.frag.spv",
         )?;
 
+        let depth_pipeline = state.create_render_pipeline(
+            &depth_layout,
+            None,
+            state.format(),
+            wgpu::BlendDescriptor::REPLACE,
+            wgpu::BlendDescriptor::REPLACE,
+            None,
+            &[frame::FrameVertex::desc()],
+            "depth_frame.vert.spv",
+            "depth_frame.frag.spv",
+        )?;
+
         let pipelines = render::Pipelines {
             forward,
             light: light_pipeline,
+            depth: depth_pipeline,
         };
 
         let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
@@ -306,6 +325,10 @@ impl Engine {
             },
         );
 
+        let light_depth_map = texture::Texture::create_depth_texture(&state, "light_depth_map");
+
+        let framebuffer = frame::Framebuffer::new(&state, &layouts.frame, &[&depth_texture]);
+
         Ok(Self {
             window,
             state,
@@ -331,6 +354,9 @@ impl Engine {
             imgui_renderer,
             last_cursor: None,
             platform,
+            light_depth_map,
+            framebuffer,
+            layouts,
         })
     }
 
@@ -346,6 +372,8 @@ impl Engine {
         self.state
             .recreate_swapchain(new_size.width, new_size.height);
         self.depth_texture = texture::Texture::create_depth_texture(&self.state, "depth_texture");
+        self.framebuffer
+            .update_textures(&self.state, &self.layouts.frame, &[&self.depth_texture]);
     }
 
     fn input(&mut self, event: &WindowEvent) -> bool {
@@ -384,11 +412,11 @@ impl Engine {
 
     fn update(&mut self, dt: std::time::Duration) {
         let old_position: cgmath::Vector3<_> = self.light.position.into();
-        self.light.position = cgmath::Quaternion::from_axis_angle(
+        /*self.light.position = cgmath::Quaternion::from_axis_angle(
             (0.0, 1.0, 0.0).into(),
             cgmath::Deg(60.0 * dt.as_secs_f32()),
         ) * old_position;
-        self.light_buffer.write(&self.state, &[self.light]);
+        self.light_buffer.write(&self.state, &[self.light]);*/
         self.imgui.io_mut().update_delta_time(dt);
     }
 
@@ -462,6 +490,18 @@ impl Engine {
 
             render_pass.set_pipeline(&self.pipelines.light);
             render_pass.draw_light_model(&self.obj_model, &self.uniform_group, &self.light_group);
+        }
+
+        {
+            let color_attachments: &[&dyn renderpass::IntoColorAttachment] =
+                &[&(&sc.view, wgpu::LoadOp::Load)];
+
+            let mut render_pass = renderpass::render_pass(&mut encoder, color_attachments, None);
+            render_pass.set_viewport(0.0, 0.0, 200.0, 200.0, 0.0, 1.0);
+
+            render_pass.set_pipeline(&self.pipelines.depth);
+
+            render_pass.draw_framebuffer(&self.framebuffer);
         }
 
         {

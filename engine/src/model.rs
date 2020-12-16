@@ -1,15 +1,12 @@
 use anyhow::*;
+use binding::BufferUsage;
 use std::{ops::Range, path::Path};
-use wgpu::util::DeviceExt;
 
 use crate::{
-    binding::{self, Binding},
+    binding::{self, Buffer},
     state, texture,
+    traits::{Binding, DrawLight, DrawModel, Vertex},
 };
-
-pub trait Vertex {
-    fn desc<'a>() -> wgpu::VertexBufferDescriptor<'a>;
-}
 
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
@@ -88,8 +85,8 @@ impl Material {
 
 pub struct Mesh {
     pub name: String,
-    pub vertex_buffer: wgpu::Buffer,
-    pub index_buffer: wgpu::Buffer,
+    pub vertex_buffer: Buffer,
+    pub index_buffer: Buffer,
     pub num_elements: u32,
     pub material: usize,
 }
@@ -186,22 +183,8 @@ impl Model {
                 vertices[c[2] as usize].bitangent = bitangent.into();
             }
 
-            let vertex_buffer =
-                state
-                    .device()
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some(&format!("{:?} Vertex Buffer", path.as_ref())),
-                        contents: bytemuck::cast_slice(&vertices),
-                        usage: wgpu::BufferUsage::VERTEX,
-                    });
-            let index_buffer =
-                state
-                    .device()
-                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                        label: Some(&format!("{:?} Index Buffer", path.as_ref())),
-                        contents: bytemuck::cast_slice(&m.mesh.indices),
-                        usage: wgpu::BufferUsage::INDEX,
-                    });
+            let vertex_buffer = Buffer::new_init(state, None, &vertices, BufferUsage::Vertex);
+            let index_buffer = Buffer::new_init(state, None, &m.mesh.indices, BufferUsage::Index);
 
             meshes.push(Mesh {
                 name: m.name,
@@ -214,51 +197,6 @@ impl Model {
 
         Ok(Self { meshes, materials })
     }
-}
-
-pub trait DrawModel<'a, 'b>
-where
-    'b: 'a,
-{
-    fn draw_mesh(
-        &mut self,
-        mesh: &'b Mesh,
-        material: &'b Material,
-        uniforms: &'b binding::BufferGroup,
-        light: &'b binding::BufferGroup,
-    );
-    fn draw_mesh_instanced(
-        &mut self,
-        mesh: &'b Mesh,
-        material: &'b Material,
-        instances: Range<u32>,
-        uniforms: &'b binding::BufferGroup,
-        light: &'b binding::BufferGroup,
-    );
-
-    fn draw_model(
-        &mut self,
-        model: &'b Model,
-        uniforms: &'b binding::BufferGroup,
-        light: &'b binding::BufferGroup,
-    );
-    fn draw_model_instanced(
-        &mut self,
-        model: &'b Model,
-        instances: Range<u32>,
-        uniforms: &'b binding::BufferGroup,
-        light: &'b binding::BufferGroup,
-    );
-    fn draw_model_instanced_with_material(
-        &mut self,
-        model: &'b Model,
-        material: &'b Material,
-        instances: Range<u32>,
-        uniforms: &'b binding::BufferGroup,
-        light: &'b binding::BufferGroup,
-    );
-
-    fn bind_material(&mut self, index: u32, material: &'b Material);
 }
 
 impl<'a, 'b> DrawModel<'a, 'b> for wgpu::RenderPass<'a>
@@ -283,8 +221,8 @@ where
         uniforms: &'b binding::BufferGroup,
         light: &'b binding::BufferGroup,
     ) {
-        self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-        self.set_index_buffer(mesh.index_buffer.slice(..));
+        self.bind_vertex_buffer(0, &mesh.vertex_buffer);
+        self.bind_index_buffer(&mesh.index_buffer);
         self.bind_material(0, &material);
         self.bind_group(1, &uniforms);
         self.bind_group(2, &light);
@@ -331,39 +269,6 @@ where
     }
 }
 
-pub trait DrawLight<'a, 'b>
-where
-    'b: 'a,
-{
-    fn draw_light_mesh(
-        &mut self,
-        mesh: &'b Mesh,
-        uniforms: &'b binding::BufferGroup,
-        light: &'b binding::BufferGroup,
-    );
-    fn draw_light_mesh_instanced(
-        &mut self,
-        mesh: &'b Mesh,
-        instances: Range<u32>,
-        uniforms: &'b binding::BufferGroup,
-        light: &'b binding::BufferGroup,
-    );
-
-    fn draw_light_model(
-        &mut self,
-        model: &'b Model,
-        uniforms: &'b binding::BufferGroup,
-        light: &'b binding::BufferGroup,
-    );
-    fn draw_light_model_instanced(
-        &mut self,
-        model: &'b Model,
-        instances: Range<u32>,
-        uniforms: &'b binding::BufferGroup,
-        light: &'b binding::BufferGroup,
-    );
-}
-
 impl<'a, 'b> DrawLight<'a, 'b> for wgpu::RenderPass<'a>
 where
     'b: 'a,
@@ -384,8 +289,8 @@ where
         uniforms: &'b binding::BufferGroup,
         light: &'b binding::BufferGroup,
     ) {
-        self.set_vertex_buffer(0, mesh.vertex_buffer.slice(..));
-        self.set_index_buffer(mesh.index_buffer.slice(..));
+        self.bind_vertex_buffer(0, &mesh.vertex_buffer);
+        self.bind_index_buffer(&mesh.index_buffer);
         self.bind_group(0, uniforms);
         self.bind_group(1, light);
         self.draw_indexed(0..mesh.num_elements, 0, instances);

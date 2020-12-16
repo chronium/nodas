@@ -139,10 +139,13 @@ impl WgpuState {
                 rasterization_state: Some(wgpu::RasterizationStateDescriptor {
                     front_face: wgpu::FrontFace::Ccw,
                     cull_mode: wgpu::CullMode::Back,
-                    depth_bias: 0,
-                    depth_bias_slope_scale: 0.0,
+                    depth_bias: 2,
+                    depth_bias_slope_scale: 2.0,
                     depth_bias_clamp: 0.0,
-                    clamp_depth: false,
+                    clamp_depth: self
+                        .device()
+                        .features()
+                        .contains(wgpu::Features::DEPTH_CLAMPING),
                 }),
                 primitive_topology: wgpu::PrimitiveTopology::TriangleList,
                 color_states: &[wgpu::ColorStateDescriptor {
