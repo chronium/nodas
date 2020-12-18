@@ -2,8 +2,9 @@ use std::{num::NonZeroU8, path::Path};
 
 use anyhow::*;
 use image::GenericImageView;
+use log::info;
 
-use crate::state;
+use super::state;
 
 pub struct Texture {
     pub texture: wgpu::Texture,
@@ -130,6 +131,7 @@ impl Texture {
             lod_max_clamp: 100.0,
             ..Default::default()
         });
+        info!("Create depth texture {:?}", label);
 
         Self {
             texture,
@@ -145,6 +147,7 @@ impl Texture {
     ) -> Result<Self> {
         let path_copy = path.as_ref().to_path_buf();
         let label = path_copy.to_str();
+        info!("Load texture {:?}", path_copy);
 
         let img = image::open(path)?;
         Self::from_image(state, &img, label, is_normal_map)

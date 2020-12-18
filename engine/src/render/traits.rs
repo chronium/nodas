@@ -1,6 +1,6 @@
 use std::ops::Range;
 
-use crate::{
+use super::{
     binding::{self, Buffer, BufferGroup, TextureBinding},
     frame::Framebuffer,
     model::{Material, Mesh, Model},

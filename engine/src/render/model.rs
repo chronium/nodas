@@ -1,8 +1,9 @@
 use anyhow::*;
 use binding::BufferUsage;
+use log::info;
 use std::{ops::Range, path::Path};
 
-use crate::{
+use super::{
     binding::{self, Buffer},
     state, texture,
     traits::{Binding, DrawLight, DrawModel, Vertex},
@@ -71,6 +72,7 @@ impl Material {
         normal_texture: texture::Texture,
         material_layout: &wgpu::BindGroupLayout,
     ) -> Self {
+        info!("Create material {:?}", name);
         Self {
             name: String::from(name),
             textures: binding::TextureBinding::new(
@@ -102,6 +104,7 @@ impl Model {
         material_layout: &wgpu::BindGroupLayout,
         path: P,
     ) -> Result<Self> {
+        info!("Load model {:?}", path.as_ref());
         let (obj_models, obj_materials) = tobj::load_obj(path.as_ref(), true)?;
 
         // We're assuming that the texture files are stored with the obj file
@@ -128,6 +131,7 @@ impl Model {
 
         let mut meshes = Vec::new();
         for m in obj_models {
+            info!("Load mesh {:?}", m.name);
             let mut vertices = Vec::new();
             for i in 0..m.mesh.positions.len() / 3 {
                 vertices.push(ModelVertex {
@@ -183,8 +187,10 @@ impl Model {
                 vertices[c[2] as usize].bitangent = bitangent.into();
             }
 
-            let vertex_buffer = Buffer::new_init(state, None, &vertices, BufferUsage::Vertex);
-            let index_buffer = Buffer::new_init(state, None, &m.mesh.indices, BufferUsage::Index);
+            let vertex_buffer =
+                Buffer::new_init(state, m.name.as_str(), &vertices, BufferUsage::Vertex);
+            let index_buffer =
+                Buffer::new_init(state, m.name.as_str(), &m.mesh.indices, BufferUsage::Index);
 
             meshes.push(Mesh {
                 name: m.name,

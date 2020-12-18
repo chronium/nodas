@@ -1,4 +1,10 @@
-use crate::state;
+pub mod binding;
+pub mod frame;
+pub mod model;
+pub mod renderpass;
+pub mod state;
+pub mod texture;
+pub mod traits;
 
 pub struct Layouts {
     pub material: wgpu::BindGroupLayout,
@@ -15,7 +21,7 @@ pub struct Pipelines {
 
 pub fn frame_layout(state: &state::WgpuState) -> wgpu::BindGroupLayout {
     state.create_layout(
-        None,
+        "framebuffer",
         &[
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -39,7 +45,7 @@ pub fn frame_layout(state: &state::WgpuState) -> wgpu::BindGroupLayout {
 
 pub fn material_layout(state: &state::WgpuState) -> wgpu::BindGroupLayout {
     state.create_layout(
-        None,
+        "material",
         &[
             wgpu::BindGroupLayoutEntry {
                 binding: 0,
@@ -79,7 +85,7 @@ pub fn material_layout(state: &state::WgpuState) -> wgpu::BindGroupLayout {
 
 pub fn uniforms_layout(state: &state::WgpuState) -> wgpu::BindGroupLayout {
     state.create_layout(
-        None,
+        "uniforms",
         &[wgpu::BindGroupLayoutEntry {
             binding: 0,
             visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
@@ -94,7 +100,7 @@ pub fn uniforms_layout(state: &state::WgpuState) -> wgpu::BindGroupLayout {
 
 pub fn light_layout(state: &state::WgpuState) -> wgpu::BindGroupLayout {
     state.create_layout(
-        None,
+        "light",
         &[wgpu::BindGroupLayoutEntry {
             binding: 0,
             visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,

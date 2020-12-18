@@ -32,7 +32,7 @@ impl Camera {
     pub fn calc_matrix(&self) -> Matrix4<f32> {
         Matrix4::look_at_dir(
             self.position,
-            Vector3::new(self.yaw.0.cos(), self.pitch.0, self.yaw.0.sin()),
+            vec3(self.yaw.0.cos(), self.pitch.0, self.yaw.0.sin()),
             Vector3::unit_y(),
         )
     }
@@ -146,14 +146,13 @@ impl CameraController {
         let dt = dt.as_secs_f32();
 
         let (yaw_sin, yaw_cos) = camera.yaw.0.sin_cos();
-        let forward = Vector3::new(yaw_cos, 0.0, yaw_sin).normalize();
-        let right = Vector3::new(-yaw_sin, 0.0, yaw_cos).normalize();
+        let forward = vec3(yaw_cos, 0.0, yaw_sin).normalize();
+        let right = vec3(-yaw_sin, 0.0, yaw_cos).normalize();
         camera.position += forward * (self.amount_forward - self.amount_backward) * self.speed * dt;
         camera.position += right * (self.amount_right - self.amount_left) * self.speed * dt;
 
         let (pitch_sin, pitch_cos) = camera.pitch.0.sin_cos();
-        let scrollward =
-            Vector3::new(pitch_cos * yaw_cos, pitch_sin, pitch_cos * yaw_sin).normalize();
+        let scrollward = vec3(pitch_cos * yaw_cos, pitch_sin, pitch_cos * yaw_sin).normalize();
         camera.position += scrollward * self.scroll * self.speed * self.sensitivity * dt;
         self.scroll = 0.0;
 

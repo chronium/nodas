@@ -10,7 +10,6 @@ edition = "2018"
 image = "0.23"
 winit = "0.23"
 cgmath = "0.17"
-env_logger = "0.8.2"
 log = "0.4"
 wgpu = "0.6"
 futures = "0.3"
@@ -22,6 +21,8 @@ imgui-winit-support = "0.6"
 tobj = "2.0.3"
 wgpu-mipmap = "0.1.0"
 genmesh = "0.6.2"
+legion = "0.3.1"
+simplelog = "0.8.0"
 
 noder = { path = "../noder" }
 

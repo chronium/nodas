@@ -1,19 +1,18 @@
 #![feature(in_band_lifetimes)]
 
-mod binding;
 mod camera;
-mod frame;
-mod model;
 mod render;
-mod renderpass;
-mod state;
-mod texture;
-mod traits;
+mod transform;
+mod world;
 
 use futures::executor::block_on;
 
 use imgui::{im_str, Condition, FontSource};
-use traits::{Binding, DrawFramebuffer, DrawLight, DrawModel, Vertex};
+use log::info;
+use render::{
+    binding, frame, model, renderpass, state, texture,
+    traits::{Binding, DrawFramebuffer, DrawLight, DrawModel, Vertex},
+};
 use winit::{
     dpi::LogicalPosition,
     event::*,
@@ -21,7 +20,7 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use cgmath::{InnerSpace, Rotation3, Zero};
+use cgmath::{vec3, InnerSpace, Rotation3, Zero};
 
 use anyhow::*;
 
@@ -35,61 +34,6 @@ struct Light {
 
 unsafe impl bytemuck::Pod for Light {}
 unsafe impl bytemuck::Zeroable for Light {}
-
-struct Instance {
-    position: cgmath::Vector3<f32>,
-    rotation: cgmath::Quaternion<f32>,
-}
-#[repr(C)]
-#[derive(Copy, Clone)]
-struct InstanceRaw {
-    model: [[f32; 4]; 4],
-}
-
-unsafe impl bytemuck::Pod for InstanceRaw {}
-unsafe impl bytemuck::Zeroable for InstanceRaw {}
-
-impl Instance {
-    fn to_raw(&self) -> InstanceRaw {
-        InstanceRaw {
-            model: (cgmath::Matrix4::from_translation(self.position)
-                * cgmath::Matrix4::from(self.rotation))
-            .into(),
-        }
-    }
-}
-
-impl InstanceRaw {
-    fn desc<'a>() -> wgpu::VertexBufferDescriptor<'a> {
-        use std::mem;
-        wgpu::VertexBufferDescriptor {
-            stride: mem::size_of::<InstanceRaw>() as wgpu::BufferAddress,
-            step_mode: wgpu::InputStepMode::Instance,
-            attributes: &[
-                wgpu::VertexAttributeDescriptor {
-                    offset: 0,
-                    shader_location: 5,
-                    format: wgpu::VertexFormat::Float4,
-                },
-                wgpu::VertexAttributeDescriptor {
-                    offset: mem::size_of::<[f32; 4]>() as wgpu::BufferAddress,
-                    shader_location: 6,
-                    format: wgpu::VertexFormat::Float4,
-                },
-                wgpu::VertexAttributeDescriptor {
-                    offset: mem::size_of::<[f32; 8]>() as wgpu::BufferAddress,
-                    shader_location: 7,
-                    format: wgpu::VertexFormat::Float4,
-                },
-                wgpu::VertexAttributeDescriptor {
-                    offset: mem::size_of::<[f32; 12]>() as wgpu::BufferAddress,
-                    shader_location: 8,
-                    format: wgpu::VertexFormat::Float4,
-                },
-            ],
-        }
-    }
-}
 
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
@@ -116,8 +60,6 @@ impl Uniforms {
     }
 }
 
-const NUM_INSTANCES_PER_ROW: u32 = 10;
-
 struct Engine {
     window: Window,
     state: state::WgpuState,
@@ -128,8 +70,6 @@ struct Engine {
     uniforms: Uniforms,
     uniform_buffer: binding::Buffer,
     uniform_group: binding::BufferGroup,
-    instances: Vec<Instance>,
-    instance_buffer: binding::Buffer,
     depth_texture: texture::Texture,
     obj_model: model::Model,
     light_buffer: binding::Buffer,
@@ -146,6 +86,7 @@ struct Engine {
     light_depth_map: texture::Texture,
     framebuffer: frame::Framebuffer,
     layouts: render::Layouts,
+    world: world::World,
 }
 
 impl Engine {
@@ -153,6 +94,7 @@ impl Engine {
         let state = state::WgpuState::new(&window, wgpu::TextureFormat::Bgra8UnormSrgb)
             .await
             .unwrap();
+        info!("Wgpu initialized");
 
         let layouts = render::Layouts {
             material: render::material_layout(&state),
@@ -165,12 +107,17 @@ impl Engine {
         let projection =
             camera::Projection::new(state.width(), state.height(), cgmath::Deg(75.0), 0.1, 100.0);
         let camera_controller = camera::CameraController::new(4.0, 350.0);
+        info!("Camera and controller initialized");
 
         let mut uniforms = Uniforms::new();
         uniforms.update_view_proj(&camera, &projection);
 
-        let uniform_buffer =
-            binding::Buffer::new_init(&state, None, &[uniforms], binding::BufferUsage::Uniform);
+        let uniform_buffer = binding::Buffer::new_init(
+            &state,
+            "uniforms",
+            &[uniforms],
+            binding::BufferUsage::Uniform,
+        );
 
         let uniform_group = binding::BufferGroup::from_buffer(
             &state,
@@ -186,7 +133,7 @@ impl Engine {
         };
 
         let light_buffer =
-            binding::Buffer::new_init(&state, None, &[light], binding::BufferUsage::Uniform);
+            binding::Buffer::new_init(&state, "light", &[light], binding::BufferUsage::Uniform);
 
         let light_group =
             binding::BufferGroup::from_buffer(&state, "light", &layouts.light, &[&light_buffer]);
@@ -194,30 +141,30 @@ impl Engine {
         let depth_texture = texture::Texture::create_depth_texture(&state, "depth_texture");
 
         let forward_layout = state.create_pipeline_layout(
-            None,
+            "forward",
             &[&layouts.material, &layouts.uniforms, &layouts.light],
         )?;
 
         let light_layout =
-            state.create_pipeline_layout(None, &[&layouts.uniforms, &layouts.light])?;
+            state.create_pipeline_layout("light", &[&layouts.uniforms, &layouts.light])?;
 
-        let depth_layout = state.create_pipeline_layout(None, &[&layouts.frame])?;
+        let depth_layout = state.create_pipeline_layout("depth", &[&layouts.frame])?;
 
         let forward = state.create_render_pipeline(
             &forward_layout,
-            None,
+            "forward_pipeline",
             state.format(),
             wgpu::BlendDescriptor::REPLACE,
             wgpu::BlendDescriptor::REPLACE,
             texture::Texture::DEPTH_FORMAT,
-            &[model::ModelVertex::desc(), InstanceRaw::desc()],
+            &[model::ModelVertex::desc(), transform::InstanceRaw::desc()],
             "shader.vert.spv",
             "shader.frag.spv",
         )?;
 
         let light_pipeline = state.create_render_pipeline(
             &light_layout,
-            None,
+            "light_pipeline",
             state.format(),
             wgpu::BlendDescriptor::REPLACE,
             wgpu::BlendDescriptor::REPLACE,
@@ -229,7 +176,7 @@ impl Engine {
 
         let depth_pipeline = state.create_render_pipeline(
             &depth_layout,
-            None,
+            "depth_pipeline",
             state.format(),
             wgpu::BlendDescriptor::REPLACE,
             wgpu::BlendDescriptor::REPLACE,
@@ -247,36 +194,6 @@ impl Engine {
 
         let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
         let obj_model = model::Model::load(&state, &layouts.material, res_dir.join("cube.obj"))?;
-
-        const SPACE_BETWEEN: f32 = 3.0;
-        let instances = (0..NUM_INSTANCES_PER_ROW)
-            .flat_map(|z| {
-                (0..NUM_INSTANCES_PER_ROW).map(move |x| {
-                    let x = SPACE_BETWEEN * (x as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-                    let z = SPACE_BETWEEN * (z as f32 - NUM_INSTANCES_PER_ROW as f32 / 2.0);
-
-                    let position = cgmath::Vector3 { x, y: 0.0, z };
-
-                    let rotation = if position.is_zero() {
-                        cgmath::Quaternion::from_axis_angle(
-                            cgmath::Vector3::unit_z(),
-                            cgmath::Deg(0.0),
-                        )
-                    } else {
-                        cgmath::Quaternion::from_axis_angle(
-                            position.clone().normalize(),
-                            cgmath::Deg(45.0),
-                        )
-                    };
-
-                    Instance { position, rotation }
-                })
-            })
-            .collect::<Vec<_>>();
-
-        let instance_data = instances.iter().map(Instance::to_raw).collect::<Vec<_>>();
-        let instance_buffer =
-            binding::Buffer::new_init(&state, None, &instance_data, binding::BufferUsage::Vertex);
 
         let debug_material = {
             let diffuse_path = res_dir.join("cobblestone_floor_08_diff_4k.jpg");
@@ -327,7 +244,22 @@ impl Engine {
 
         let light_depth_map = texture::Texture::create_depth_texture(&state, "light_depth_map");
 
-        let framebuffer = frame::Framebuffer::new(&state, &layouts.frame, &[&depth_texture]);
+        let framebuffer = frame::Framebuffer::new(
+            &state,
+            "depth_framebuffer",
+            &layouts.frame,
+            &[&depth_texture],
+        );
+
+        let mut world = world::World::new();
+
+        let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
+        world.load_model(&state, &layouts, "block", res_dir.join("cube.obj"))?;
+
+        world.push_entity(
+            "block",
+            transform::Transform::new(&state, "block_transform"),
+        );
 
         Ok(Self {
             window,
@@ -339,8 +271,6 @@ impl Engine {
             uniforms,
             uniform_buffer,
             uniform_group,
-            instances,
-            instance_buffer,
             depth_texture,
             obj_model,
             light_buffer,
@@ -357,6 +287,7 @@ impl Engine {
             light_depth_map,
             framebuffer,
             layouts,
+            world,
         })
     }
 
@@ -368,6 +299,11 @@ impl Engine {
     }
 
     fn resize(&mut self, new_size: winit::dpi::PhysicalSize<u32>) {
+        info!(
+            "Resize from {:?} to {:?}",
+            (self.state.width() as u32, self.state.height() as u32),
+            (new_size.width as u32, new_size.height as u32)
+        );
         self.projection.resize(new_size.width, new_size.height);
         self.state
             .recreate_swapchain(new_size.width, new_size.height);
@@ -479,14 +415,8 @@ impl Engine {
 
             render_pass.set_pipeline(&self.pipelines.forward);
 
-            render_pass.bind_buffer(1, &self.instance_buffer);
-            render_pass.draw_model_instanced_with_material(
-                &self.obj_model,
-                &self.debug_material,
-                0..self.instances.len() as u32,
-                &self.uniform_group,
-                &self.light_group,
-            );
+            self.world
+                .render(&mut render_pass, &self.uniform_group, &self.light_group);
 
             render_pass.set_pipeline(&self.pipelines.light);
             render_pass.draw_light_model(&self.obj_model, &self.uniform_group, &self.light_group);
@@ -549,12 +479,18 @@ impl Engine {
 }
 
 fn main() {
-    env_logger::init();
+    simplelog::TermLogger::init(
+        log::LevelFilter::Info,
+        simplelog::Config::default(),
+        simplelog::TerminalMode::Mixed,
+    )
+    .unwrap();
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
         .with_title("Nodas engine")
         .build(&event_loop)
         .unwrap();
+    info!("Window intialized");
 
     let mut engine = block_on(Engine::new(window)).unwrap();
     let mut last_render_time = std::time::Instant::now();

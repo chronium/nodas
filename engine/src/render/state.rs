@@ -2,6 +2,7 @@ use std::{fs, path::Path};
 
 use anyhow::*;
 
+use log::info;
 use wgpu_mipmap::{MipmapGenerator, RecommendedMipmapGenerator};
 use winit::window::Window;
 
@@ -67,10 +68,12 @@ impl WgpuState {
         name: T,
         entries: &[wgpu::BindGroupLayoutEntry],
     ) -> wgpu::BindGroupLayout {
+        let name = name.into();
+        info!("Create {:?} layout", &name.unwrap_or(""));
         self.device()
             .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 entries,
-                label: name.into(),
+                label: name,
             })
     }
 
@@ -79,10 +82,12 @@ impl WgpuState {
         name: T,
         bindings: &[&wgpu::BindGroupLayout],
     ) -> Result<wgpu::PipelineLayout> {
+        let name = name.into();
+        info!("Create pipeline layout {:?}", &name.unwrap_or(""));
         Ok(self
             .device()
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: name.into(),
+                label: name,
                 bind_group_layouts: bindings,
                 push_constant_ranges: &[],
             }))
@@ -104,6 +109,8 @@ impl WgpuState {
         vertex_shader: P,
         fragment_shader: P,
     ) -> Result<wgpu::RenderPipeline> {
+        let pipeline = pipeline.into();
+        info!("Init render pipeline {:?}", &pipeline.unwrap_or(""));
         let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
         let vs_module = self.device().create_shader_module(wgpu::util::make_spirv(
             fs::read(res_dir.join(vertex_shader.as_ref()))
@@ -113,7 +120,7 @@ impl WgpuState {
                 ))?
                 .as_slice(),
         ));
-        let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
+        info!("Loaded vertex shader {:?}", vertex_shader.as_ref());
         let fs_module = self.device().create_shader_module(wgpu::util::make_spirv(
             fs::read(res_dir.join(fragment_shader.as_ref()))
                 .context(format!(
@@ -122,11 +129,12 @@ impl WgpuState {
                 ))?
                 .as_slice(),
         ));
+        info!("Loaded fragment shader {:?}", fragment_shader.as_ref());
 
-        Ok(self
+        let result = self
             .device()
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: pipeline.into(),
+                label: pipeline,
                 layout: Some(layout),
                 vertex_stage: wgpu::ProgrammableStageDescriptor {
                     module: &vs_module,
@@ -169,7 +177,10 @@ impl WgpuState {
                 sample_count: 1,
                 sample_mask: !0,
                 alpha_to_coverage_enabled: false,
-            }))
+            });
+        info!("Created pipeline {:?}", pipeline.clone().unwrap_or(""));
+
+        Ok(result)
     }
 
     pub fn encoder(&self) -> wgpu::CommandEncoder {

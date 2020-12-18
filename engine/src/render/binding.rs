@@ -1,7 +1,9 @@
+use log::info;
 use wgpu::util::DeviceExt;
 
-use crate::{state, texture, traits::Binding};
+use super::{state, texture, traits::Binding};
 
+#[derive(Debug)]
 pub enum BufferUsage {
     Vertex,
     Uniform,
@@ -23,17 +25,19 @@ pub struct Buffer {
 }
 
 impl Buffer {
-    pub fn new_init<A: bytemuck::Pod, L: Into<Option<&'a str>>, U: Into<wgpu::BufferUsage>>(
+    pub fn new_init<A: bytemuck::Pod, L: Into<Option<&'a str>>>(
         state: &state::WgpuState,
         label: L,
         data: &[A],
-        usage: U,
+        usage: BufferUsage,
     ) -> Self {
+        let label = label.into();
+        info!("Init {:?} buffer {:?}", &usage, &label.unwrap_or(""));
         Self {
             buffer: state
                 .device()
                 .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: label.into(),
+                    label: label,
                     usage: usage.into(),
                     contents: bytemuck::cast_slice(&data),
                 }),
@@ -63,12 +67,13 @@ impl BufferGroup {
         layout: &wgpu::BindGroupLayout,
         group: &[&Buffer],
     ) -> Self {
-        let label: Option<&str> = label.into();
+        let label = label.into();
+        info!("Create buffer group {:?}", &label.unwrap_or(""));
         Self {
             bind_group: state
                 .device()
                 .create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: label.into(),
+                    label: label,
                     layout,
                     entries: group
                         .iter()
@@ -97,7 +102,7 @@ impl TextureBinding {
         layout: &wgpu::BindGroupLayout,
         textures: &[texture::Texture],
     ) -> Self {
-        let label: Option<&str> = label.into();
+        let label = label.into();
         Self {
             bind_group: state
                 .device()

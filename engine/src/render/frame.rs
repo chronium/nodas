@@ -1,6 +1,7 @@
 use binding::BufferUsage;
+use log::info;
 
-use crate::{
+use super::{
     binding, state, texture,
     traits::{Binding, DrawFramebuffer, Vertex},
 };
@@ -44,15 +45,18 @@ pub struct Framebuffer {
 }
 
 impl Framebuffer {
-    pub fn new(
+    pub fn new<T: Into<Option<&'a str>>>(
         state: &state::WgpuState,
+        label: T,
         layout: &wgpu::BindGroupLayout,
         textures: &[&texture::Texture],
     ) -> Self {
+        let label = label.into();
+        info!("Create framebuffer {:?}", &label.unwrap_or(""));
         Self {
             vertex_buffer: binding::Buffer::new_init(
                 state,
-                None,
+                label,
                 &[
                     FrameVertex {
                         position: [0.0, 0.0, 0.0].into(),
@@ -75,11 +79,11 @@ impl Framebuffer {
             ),
             index_buffer: binding::Buffer::new_init(
                 state,
-                None,
+                label,
                 &[0, 1, 2, 0, 2, 3],
                 BufferUsage::Index,
             ),
-            textures: binding::TextureBinding::new_ref(state, None, layout, textures),
+            textures: binding::TextureBinding::new_ref(state, label, layout, textures),
         }
     }
 
