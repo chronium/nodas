@@ -8,6 +8,7 @@ pub enum BufferUsage {
     Vertex,
     Uniform,
     Index,
+    Transform,
 }
 
 impl From<BufferUsage> for wgpu::BufferUsage {
@@ -16,6 +17,7 @@ impl From<BufferUsage> for wgpu::BufferUsage {
             BufferUsage::Vertex => wgpu::BufferUsage::VERTEX,
             BufferUsage::Uniform => wgpu::BufferUsage::UNIFORM | wgpu::BufferUsage::COPY_DST,
             BufferUsage::Index => wgpu::BufferUsage::INDEX,
+            BufferUsage::Transform => wgpu::BufferUsage::VERTEX | wgpu::BufferUsage::COPY_DST,
         }
     }
 }

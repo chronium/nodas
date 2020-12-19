@@ -257,6 +257,16 @@ where
         }
     }
 
+    fn draw_model_with_material(
+        &mut self,
+        model: &'b Model,
+        material: &'b Material,
+        uniforms: &'b binding::BufferGroup,
+        light: &'b binding::BufferGroup,
+    ) {
+        self.draw_model_instanced_with_material(model, material, 0..1, uniforms, light);
+    }
+
     fn draw_model_instanced_with_material(
         &mut self,
         model: &'b Model,

@@ -1,4 +1,4 @@
-#![feature(in_band_lifetimes)]
+#![feature(in_band_lifetimes, cell_update)]
 
 mod camera;
 mod render;
@@ -11,7 +11,7 @@ use imgui::{im_str, Condition, FontSource};
 use log::info;
 use render::{
     binding, frame, model, renderpass, state, texture,
-    traits::{Binding, DrawFramebuffer, DrawLight, DrawModel, Vertex},
+    traits::{DrawFramebuffer, DrawLight, Vertex},
 };
 use winit::{
     dpi::LogicalPosition,
@@ -20,7 +20,7 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use cgmath::{vec3, InnerSpace, Rotation3, Zero};
+use cgmath::{vec3, Zero};
 
 use anyhow::*;
 
@@ -75,7 +75,6 @@ struct Engine {
     light_buffer: binding::Buffer,
     light_group: binding::BufferGroup,
     light: Light,
-    debug_material: model::Material,
     last_mouse_pos: LogicalPosition<f64>,
     current_mouse_pos: LogicalPosition<f64>,
     mouse_pressed: bool,
@@ -195,22 +194,6 @@ impl Engine {
         let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
         let obj_model = model::Model::load(&state, &layouts.material, res_dir.join("cube.obj"))?;
 
-        let debug_material = {
-            let diffuse_path = res_dir.join("cobblestone_floor_08_diff_4k.jpg");
-            let diffuse_texture = texture::Texture::load(&state, diffuse_path, false).unwrap();
-
-            let normal_path = res_dir.join("cobblestone_floor_08_nor_4k.jpg");
-            let normal_texture = texture::Texture::load(&state, normal_path, true).unwrap();
-
-            model::Material::new(
-                &state,
-                "alt-material",
-                diffuse_texture,
-                normal_texture,
-                &layouts.material,
-            )
-        };
-
         let mut imgui = imgui::Context::create();
         let mut platform = imgui_winit_support::WinitPlatform::init(&mut imgui);
         platform.attach_window(
@@ -253,13 +236,35 @@ impl Engine {
 
         let mut world = world::World::new();
 
+        let diffuse_path = res_dir.join("cobblestone_floor_08_diff_4k.jpg");
+        let diffuse_texture = texture::Texture::load(&state, diffuse_path, false).unwrap();
+
+        let normal_path = res_dir.join("cobblestone_floor_08_nor_4k.jpg");
+        let normal_texture = texture::Texture::load(&state, normal_path, true).unwrap();
+
+        world.load_material_raw(
+            &state,
+            "debug",
+            diffuse_texture,
+            normal_texture,
+            &layouts.material,
+        );
+
         let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
         world.load_model(&state, &layouts, "block", res_dir.join("cube.obj"))?;
 
-        world.push_entity(
-            "block",
+        world.push_entity((
+            world::ModelIdent("block".into()),
             transform::Transform::new(&state, "block_transform"),
-        );
+        ));
+
+        let mut transform = transform::Transform::new(&state, "block_transform");
+        transform.position(vec3(-2.5, 0.0, 0.0));
+        world.push_entity((
+            world::ModelIdent("block".into()),
+            transform,
+            world::MaterialIdent("debug".into()),
+        ));
 
         Ok(Self {
             window,
@@ -276,7 +281,6 @@ impl Engine {
             light_buffer,
             light_group,
             light,
-            debug_material,
             last_mouse_pos: (0.0, 0.0).into(),
             current_mouse_pos: (0.0, 0.0).into(),
             mouse_pressed: false,
@@ -347,8 +351,8 @@ impl Engine {
     }
 
     fn update(&mut self, dt: std::time::Duration) {
-        let old_position: cgmath::Vector3<_> = self.light.position.into();
-        /*self.light.position = cgmath::Quaternion::from_axis_angle(
+        /*let old_position: cgmath::Vector3<_> = self.light.position.into();
+        self.light.position = cgmath::Quaternion::from_axis_angle(
             (0.0, 1.0, 0.0).into(),
             cgmath::Deg(60.0 * dt.as_secs_f32()),
         ) * old_position;
@@ -415,8 +419,12 @@ impl Engine {
 
             render_pass.set_pipeline(&self.pipelines.forward);
 
-            self.world
-                .render(&mut render_pass, &self.uniform_group, &self.light_group);
+            self.world.render(
+                &self.state,
+                &mut render_pass,
+                &self.uniform_group,
+                &self.light_group,
+            );
 
             render_pass.set_pipeline(&self.pipelines.light);
             render_pass.draw_light_model(&self.obj_model, &self.uniform_group, &self.light_group);

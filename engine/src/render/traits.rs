@@ -43,6 +43,14 @@ where
         uniforms: &'b binding::BufferGroup,
         light: &'b binding::BufferGroup,
     );
+
+    fn draw_model_with_material(
+        &mut self,
+        model: &'b Model,
+        material: &'b Material,
+        uniforms: &'b binding::BufferGroup,
+        light: &'b binding::BufferGroup,
+    );
     fn draw_model_instanced_with_material(
         &mut self,
         model: &'b Model,

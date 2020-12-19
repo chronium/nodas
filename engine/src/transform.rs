@@ -1,3 +1,8 @@
+use std::{
+    cell::Cell,
+    sync::atomic::{AtomicBool, Ordering},
+};
+
 use cgmath::{vec3, Deg, Matrix4, One, Vector3, Zero};
 
 use crate::render::{binding, state};
@@ -75,7 +80,7 @@ impl TransformRaw {
 
 pub struct Transform {
     transform: TransformRaw,
-    pub buffer: binding::Buffer,
+    buffer: binding::Buffer,
     dirty: bool,
 }
 
@@ -86,12 +91,25 @@ impl Transform {
             state,
             label,
             &[transform.to_raw()],
-            binding::BufferUsage::Vertex,
+            binding::BufferUsage::Transform,
         );
         Self {
             transform,
             buffer,
             dirty: false,
         }
+    }
+
+    pub fn position(&mut self, position: cgmath::Vector3<f32>) {
+        self.dirty = true;
+        self.transform.position = position;
+    }
+
+    pub fn buffer(&mut self, state: &state::WgpuState) -> &binding::Buffer {
+        if self.dirty {
+            self.dirty = false;
+            self.buffer.write(state, &[self.transform.to_raw()]);
+        }
+        &self.buffer
     }
 }
