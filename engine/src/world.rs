@@ -11,7 +11,7 @@ use crate::{
     transform,
 };
 
-use legion::{system, IntoQuery};
+use legion::IntoQuery;
 
 #[derive(PartialEq, Eq, Hash)]
 pub struct ModelIdent(pub String);

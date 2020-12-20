@@ -12,11 +12,11 @@ use super::{
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct ModelVertex {
-    position: cgmath::Vector3<f32>,
-    tex_coords: cgmath::Vector2<f32>,
-    normal: cgmath::Vector3<f32>,
-    tangent: cgmath::Vector3<f32>,
-    bitangent: cgmath::Vector3<f32>,
+    position: nalgebra::Vector3<f32>,
+    tex_coords: nalgebra::Vector2<f32>,
+    normal: nalgebra::Vector3<f32>,
+    tangent: nalgebra::Vector3<f32>,
+    bitangent: nalgebra::Vector3<f32>,
 }
 
 unsafe impl bytemuck::Pod for ModelVertex {}
@@ -160,13 +160,13 @@ impl Model {
                 let v1 = vertices[c[1] as usize];
                 let v2 = vertices[c[2] as usize];
 
-                let pos0: cgmath::Vector3<_> = v0.position.into();
-                let pos1: cgmath::Vector3<_> = v1.position.into();
-                let pos2: cgmath::Vector3<_> = v2.position.into();
+                let pos0: nalgebra::Vector3<_> = v0.position.into();
+                let pos1: nalgebra::Vector3<_> = v1.position.into();
+                let pos2: nalgebra::Vector3<_> = v2.position.into();
 
-                let uv0: cgmath::Vector2<_> = v0.tex_coords.into();
-                let uv1: cgmath::Vector2<_> = v1.tex_coords.into();
-                let uv2: cgmath::Vector2<_> = v2.tex_coords.into();
+                let uv0: nalgebra::Vector2<_> = v0.tex_coords.into();
+                let uv1: nalgebra::Vector2<_> = v1.tex_coords.into();
+                let uv2: nalgebra::Vector2<_> = v2.tex_coords.into();
 
                 let delta_pos1 = pos1 - pos0;
                 let delta_pos2 = pos2 - pos0;

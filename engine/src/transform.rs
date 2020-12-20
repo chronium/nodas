@@ -1,9 +1,4 @@
-use std::{
-    cell::Cell,
-    sync::atomic::{AtomicBool, Ordering},
-};
-
-use cgmath::{vec3, Deg, Matrix4, One, Vector3, Zero};
+use nalgebra::{zero, Matrix4, Vector3};
 
 use crate::render::{binding, state};
 
@@ -51,24 +46,20 @@ impl InstanceRaw {
 struct TransformRaw {
     pub position: Vector3<f32>,
     pub scale: Vector3<f32>,
-    pub rotation: Vector3<Deg<f32>>,
+    pub rotation: Vector3<f32>,
 }
 
 impl TransformRaw {
     pub fn new() -> Self {
         Self {
-            position: Vector3::zero(),
-            scale: vec3(f32::one(), f32::one(), f32::one()),
-            rotation: vec3(Deg(f32::zero()), Deg(f32::zero()), Deg(f32::zero())),
+            position: zero(),
+            scale: Vector3::new(1.0, 1.0, 1.0),
+            rotation: zero(),
         }
     }
 
     fn matrix(&self) -> Matrix4<f32> {
-        return Matrix4::from_translation(self.position)
-            * Matrix4::from_nonuniform_scale(self.scale.x, self.scale.y, self.scale.z)
-            * Matrix4::from_angle_x(self.rotation.x)
-            * Matrix4::from_angle_y(self.rotation.y)
-            * Matrix4::from_angle_z(self.rotation.z);
+        return Matrix4::new_translation(&self.position);
     }
 
     fn to_raw(&self) -> InstanceRaw {
@@ -100,7 +91,7 @@ impl Transform {
         }
     }
 
-    pub fn position(&mut self, position: cgmath::Vector3<f32>) {
+    pub fn position(&mut self, position: nalgebra::Vector3<f32>) {
         self.dirty = true;
         self.transform.position = position;
     }

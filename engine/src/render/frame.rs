@@ -9,8 +9,8 @@ use super::{
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct FrameVertex {
-    position: cgmath::Vector3<f32>,
-    tex_coords: cgmath::Vector2<f32>,
+    position: nalgebra::Vector3<f32>,
+    tex_coords: nalgebra::Vector2<f32>,
 }
 
 unsafe impl bytemuck::Pod for FrameVertex {}

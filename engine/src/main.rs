@@ -20,16 +20,14 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use cgmath::{vec3, Zero};
-
 use anyhow::*;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
 struct Light {
-    position: cgmath::Vector3<f32>,
+    position: nalgebra::Vector3<f32>,
     ty: f32,
-    color: cgmath::Vector3<f32>,
+    color: nalgebra::Vector3<f32>,
 }
 
 unsafe impl bytemuck::Pod for Light {}
@@ -38,8 +36,8 @@ unsafe impl bytemuck::Zeroable for Light {}
 #[repr(C)]
 #[derive(Debug, Copy, Clone)]
 struct Uniforms {
-    view_position: cgmath::Vector4<f32>,
-    view_proj: cgmath::Matrix4<f32>,
+    view_position: nalgebra::Vector4<f32>,
+    view_proj: nalgebra::Matrix4<f32>,
 }
 
 unsafe impl bytemuck::Pod for Uniforms {}
@@ -47,16 +45,15 @@ unsafe impl bytemuck::Zeroable for Uniforms {}
 
 impl Uniforms {
     fn new() -> Self {
-        use cgmath::SquareMatrix;
         Self {
-            view_position: Zero::zero(),
-            view_proj: cgmath::Matrix4::identity(),
+            view_position: nalgebra::zero(),
+            view_proj: nalgebra::Matrix4::identity(),
         }
     }
 
-    fn update_view_proj(&mut self, camera: &camera::Camera, projection: &camera::Projection) {
-        self.view_position = camera.position.to_homogeneous();
-        self.view_proj = projection.calc_matrix() * camera.calc_matrix()
+    fn update_view_proj(&mut self, camera: &camera::Camera) {
+        self.view_position = camera.eye.to_homogeneous();
+        self.view_proj = camera.view_proj;
     }
 }
 
@@ -65,8 +62,7 @@ struct Engine {
     state: state::WgpuState,
     pipelines: render::Pipelines,
     camera: camera::Camera,
-    projection: camera::Projection,
-    camera_controller: camera::CameraController,
+    camera_controller: camera::flycam::FlyCamController,
     uniforms: Uniforms,
     uniform_buffer: binding::Buffer,
     uniform_group: binding::BufferGroup,
@@ -102,14 +98,16 @@ impl Engine {
             frame: render::frame_layout(&state),
         };
 
-        let camera = camera::Camera::new((0.0, 5.0, 10.0), cgmath::Deg(-90.0), cgmath::Deg(-20.0));
-        let projection =
-            camera::Projection::new(state.width(), state.height(), cgmath::Deg(75.0), 0.1, 100.0);
-        let camera_controller = camera::CameraController::new(4.0, 350.0);
+        let camera = camera::Camera::new(
+            [0.0, 5.0, 10.0].into(),
+            [0.0, 0.0, 0.0].into(),
+            camera::projection::Projection::new(state.width(), state.height(), 75.0, 0.1, 100.0),
+        );
+        let camera_controller = camera::flycam::FlyCamController::new(4.0, 100.0);
         info!("Camera and controller initialized");
 
         let mut uniforms = Uniforms::new();
-        uniforms.update_view_proj(&camera, &projection);
+        uniforms.update_view_proj(&camera);
 
         let uniform_buffer = binding::Buffer::new_init(
             &state,
@@ -126,9 +124,9 @@ impl Engine {
         );
 
         let light = Light {
-            position: (-0.25, 0.25, -0.25).into(),
+            position: [-0.25, 0.25, -0.25].into(),
             ty: 0.0,
-            color: (1.0, 1.0, 1.0).into(),
+            color: [1.0, 1.0, 1.0].into(),
         };
 
         let light_buffer =
@@ -259,7 +257,7 @@ impl Engine {
         ));
 
         let mut transform = transform::Transform::new(&state, "block_transform");
-        transform.position(vec3(-2.5, 0.0, 0.0));
+        transform.position(nalgebra::Vector3::new(-2.5, 0.0, 0.0));
         world.push_entity((
             world::ModelIdent("block".into()),
             transform,
@@ -271,7 +269,6 @@ impl Engine {
             state,
             pipelines,
             camera,
-            projection,
             camera_controller,
             uniforms,
             uniform_buffer,
@@ -308,7 +305,7 @@ impl Engine {
             (self.state.width() as u32, self.state.height() as u32),
             (new_size.width as u32, new_size.height as u32)
         );
-        self.projection.resize(new_size.width, new_size.height);
+        self.camera.resize(new_size.width, new_size.height);
         self.state
             .recreate_swapchain(new_size.width, new_size.height);
         self.depth_texture = texture::Texture::create_depth_texture(&self.state, "depth_texture");
@@ -327,10 +324,10 @@ impl Engine {
                     },
                 ..
             } => self.camera_controller.process_keyboard(*key, *state),
-            WindowEvent::MouseWheel { delta, .. } => {
+            /*WindowEvent::MouseWheel { delta, .. } => {
                 self.camera_controller.process_scroll(delta);
                 true
-            }
+            }*/
             WindowEvent::MouseInput {
                 button: MouseButton::Left,
                 state,
@@ -396,8 +393,7 @@ impl Engine {
         }
         self.camera_controller.update_camera(&mut self.camera, dt);
         self.last_mouse_pos = self.current_mouse_pos;
-        self.uniforms
-            .update_view_proj(&self.camera, &self.projection);
+        self.uniforms.update_view_proj(&self.camera);
         self.uniform_buffer.write(&self.state, &[self.uniforms]);
 
         {
