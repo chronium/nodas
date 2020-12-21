@@ -145,7 +145,8 @@ impl Engine {
         let light_layout =
             state.create_pipeline_layout("light", &[&layouts.uniforms, &layouts.light])?;
 
-        let depth_layout = state.create_pipeline_layout("depth", &[&layouts.frame])?;
+        let depth_layout =
+            state.create_pipeline_layout("depth", &[&layouts.frame, &layouts.uniforms])?;
 
         let forward = state.create_render_pipeline(
             &forward_layout,
@@ -234,20 +235,6 @@ impl Engine {
 
         let mut world = world::World::new();
 
-        let diffuse_path = res_dir.join("cobblestone_floor_08_diff_4k.jpg");
-        let diffuse_texture = texture::Texture::load(&state, diffuse_path, false).unwrap();
-
-        let normal_path = res_dir.join("cobblestone_floor_08_nor_4k.jpg");
-        let normal_texture = texture::Texture::load(&state, normal_path, true).unwrap();
-
-        world.load_material_raw(
-            &state,
-            "debug",
-            diffuse_texture,
-            normal_texture,
-            &layouts.material,
-        );
-
         let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
         world.load_model(&state, &layouts, "block", res_dir.join("cube.obj"))?;
 
@@ -258,11 +245,7 @@ impl Engine {
 
         let mut transform = transform::Transform::new(&state, "block_transform");
         transform.position(nalgebra::Vector3::new(-2.5, 0.0, 0.0));
-        world.push_entity((
-            world::ModelIdent("block".into()),
-            transform,
-            world::MaterialIdent("debug".into()),
-        ));
+        world.push_entity((world::ModelIdent("block".into()), transform));
 
         Ok(Self {
             window,
@@ -435,7 +418,7 @@ impl Engine {
 
             render_pass.set_pipeline(&self.pipelines.depth);
 
-            render_pass.draw_framebuffer(&self.framebuffer);
+            render_pass.draw_framebuffer(&self.framebuffer, &self.uniform_group);
         }
 
         {

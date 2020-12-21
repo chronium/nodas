@@ -101,10 +101,11 @@ impl<'a, 'b> DrawFramebuffer<'a, 'b> for wgpu::RenderPass<'a>
 where
     'b: 'a,
 {
-    fn draw_framebuffer(&mut self, frame: &'b Framebuffer) {
+    fn draw_framebuffer(&mut self, frame: &'b Framebuffer, uniforms: &'b binding::BufferGroup) {
         self.bind_vertex_buffer(0, &frame.vertex_buffer);
         self.bind_index_buffer(&frame.index_buffer);
         self.bind_textures(0, &frame.textures);
+        self.bind_group(1, &uniforms);
         self.draw_indexed(0..6, 0, 0..1);
     }
 }

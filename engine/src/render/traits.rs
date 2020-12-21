@@ -111,5 +111,5 @@ pub trait DrawFramebuffer<'a, 'b>
 where
     'b: 'a,
 {
-    fn draw_framebuffer(&mut self, frame: &'b Framebuffer);
+    fn draw_framebuffer(&mut self, frame: &'b Framebuffer, uniforms: &'b binding::BufferGroup);
 }
