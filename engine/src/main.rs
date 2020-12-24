@@ -249,20 +249,6 @@ impl Engine {
 
         world.update_collision_world();
 
-        info!("{:?}", camera.at());
-        info!(
-            "{:?}",
-            world
-                .raycast(
-                    &ncollide3d::query::Ray::new(
-                        nalgebra::Point3::new(-10.0, 0.0, 0.0),
-                        [1.0, 0.0, 0.0].into()
-                    ),
-                    10.0
-                )
-                .is_some()
-        );
-
         Ok(Self {
             window,
             state,
@@ -354,12 +340,15 @@ impl Engine {
         ) * old_position;
         self.light_buffer.write(&self.state, &[self.light]);*/
         self.imgui.io_mut().update_delta_time(dt);
+        self.world.update_collision_world();
     }
 
     fn render(&mut self, dt: std::time::Duration) -> Result<(), wgpu::SwapChainError> {
         let mut encoder = self.state.encoder();
 
         let sc = self.state.frame()?.output;
+
+        let raycast = self.world.raycast(&self.camera.ray(), 1024.0).is_some();
 
         let ui = self.imgui.frame();
         {
@@ -382,6 +371,7 @@ impl Engine {
                         mouse_pos[0],
                         mouse_pos[1],
                     ));
+                    ui.text(im_str!("Hit: {}", raycast));
                 });
         }
 

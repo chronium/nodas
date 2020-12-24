@@ -1,6 +1,7 @@
 use nalgebra::{
     one, Isometry3, Matrix4, Point3, Translation3, Unit, UnitQuaternion, Vector2, Vector3,
 };
+use ncollide3d::query::Ray;
 use projection::Projection;
 
 pub mod flycam;
@@ -81,6 +82,10 @@ impl Camera {
 
     pub fn view_transform(&self) -> Isometry3<f32> {
         Isometry3::look_at_rh(&self.eye, &self.at(), &self.coord_system.up_axis)
+    }
+
+    pub fn ray(&self) -> Ray<f32> {
+        Ray::new(self.eye, self.observer_frame() * Vector3::z())
     }
 
     #[inline]
