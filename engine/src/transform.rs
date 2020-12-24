@@ -1,4 +1,4 @@
-use nalgebra::{zero, Matrix4, Vector3};
+use nalgebra::{Isometry3, Matrix4, Translation3, Vector3};
 
 use crate::render::{binding, state};
 
@@ -43,64 +43,61 @@ impl InstanceRaw {
     }
 }
 
-struct TransformRaw {
-    pub position: Vector3<f32>,
-    pub scale: Vector3<f32>,
-    pub rotation: Vector3<f32>,
-}
-
-impl TransformRaw {
-    pub fn new() -> Self {
-        Self {
-            position: zero(),
-            scale: Vector3::new(1.0, 1.0, 1.0),
-            rotation: zero(),
-        }
-    }
-
-    fn matrix(&self) -> Matrix4<f32> {
-        return Matrix4::new_translation(&self.position);
-    }
-
-    fn to_raw(&self) -> InstanceRaw {
-        InstanceRaw {
-            model: self.matrix().into(),
-        }
-    }
-}
-
 pub struct Transform {
-    transform: TransformRaw,
+    transform: Isometry3<f32>,
+    scale: Vector3<f32>,
     buffer: binding::Buffer,
     dirty: bool,
 }
 
 impl Transform {
     pub fn new<L: Into<Option<&'a str>>>(state: &state::WgpuState, label: L) -> Self {
-        let transform = TransformRaw::new();
+        let transform = Isometry3::identity();
+        let scale = Vector3::new(1.0, 1.0, 1.0);
         let buffer = binding::Buffer::new_init(
             state,
             label,
-            &[transform.to_raw()],
+            &[InstanceRaw {
+                model: (Matrix4::new_nonuniform_scaling(&scale) * transform.to_matrix()).into(),
+            }],
             binding::BufferUsage::Transform,
         );
         Self {
             transform,
+            scale,
             buffer,
             dirty: false,
         }
     }
 
-    pub fn position(&mut self, position: nalgebra::Vector3<f32>) {
+    pub fn isometry(&self) -> Isometry3<f32> {
+        self.transform
+    }
+
+    pub fn scale(&self) -> Vector3<f32> {
+        self.scale
+    }
+
+    pub fn position(&mut self, position: Translation3<f32>) {
         self.dirty = true;
-        self.transform.position = position;
+        self.transform.translation = position;
     }
 
     pub fn buffer(&mut self, state: &state::WgpuState) -> &binding::Buffer {
         if self.dirty {
             self.dirty = false;
-            self.buffer.write(state, &[self.transform.to_raw()]);
+            self.buffer.write(
+                state,
+                &[InstanceRaw {
+                    model: self.matrix().into(),
+                }],
+            );
         }
         &self.buffer
+    }
+
+    #[inline]
+    fn matrix(&self) -> Matrix4<f32> {
+        Matrix4::new_nonuniform_scaling(&self.scale) * self.transform.to_matrix()
     }
 }

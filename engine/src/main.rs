@@ -241,11 +241,27 @@ impl Engine {
         world.push_entity((
             world::ModelIdent("block".into()),
             transform::Transform::new(&state, "block_transform"),
-        ));
+        ))?;
 
         let mut transform = transform::Transform::new(&state, "block_transform");
-        transform.position(nalgebra::Vector3::new(-2.5, 0.0, 0.0));
-        world.push_entity((world::ModelIdent("block".into()), transform));
+        transform.position(nalgebra::Translation3::new(-2.5, 0.0, 0.0));
+        world.push_entity((world::ModelIdent("block".into()), transform))?;
+
+        world.update_collision_world();
+
+        info!("{:?}", camera.at());
+        info!(
+            "{:?}",
+            world
+                .raycast(
+                    &ncollide3d::query::Ray::new(
+                        nalgebra::Point3::new(-10.0, 0.0, 0.0),
+                        [1.0, 0.0, 0.0].into()
+                    ),
+                    10.0
+                )
+                .is_some()
+        );
 
         Ok(Self {
             window,
@@ -398,12 +414,14 @@ impl Engine {
 
             render_pass.set_pipeline(&self.pipelines.forward);
 
-            self.world.render(
-                &self.state,
-                &mut render_pass,
-                &self.uniform_group,
-                &self.light_group,
-            );
+            self.world
+                .render(
+                    &self.state,
+                    &mut render_pass,
+                    &self.uniform_group,
+                    &self.light_group,
+                )
+                .expect("Error rendering");
 
             render_pass.set_pipeline(&self.pipelines.light);
             render_pass.draw_light_model(&self.obj_model, &self.uniform_group, &self.light_group);

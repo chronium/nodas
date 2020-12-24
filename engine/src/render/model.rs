@@ -1,7 +1,9 @@
 use anyhow::*;
 use binding::BufferUsage;
 use log::info;
-use std::{ops::Range, path::Path};
+use nalgebra::{Point2, Point3, Vector3};
+use ncollide3d::shape::TriMesh;
+use std::{ops::Range, path::Path, sync::Arc};
 
 use super::{
     binding::{self, Buffer},
@@ -12,11 +14,11 @@ use super::{
 #[repr(C)]
 #[derive(Copy, Clone, Debug)]
 pub struct ModelVertex {
-    position: nalgebra::Vector3<f32>,
-    tex_coords: nalgebra::Vector2<f32>,
-    normal: nalgebra::Vector3<f32>,
-    tangent: nalgebra::Vector3<f32>,
-    bitangent: nalgebra::Vector3<f32>,
+    position: Point3<f32>,
+    tex_coords: Point2<f32>,
+    normal: Vector3<f32>,
+    tangent: Vector3<f32>,
+    bitangent: Vector3<f32>,
 }
 
 unsafe impl bytemuck::Pod for ModelVertex {}
@@ -87,8 +89,8 @@ impl Material {
 
 pub struct Mesh {
     pub name: String,
-    pub vertex_buffer: Buffer,
-    pub index_buffer: Buffer,
+    pub vertex_buffer: Arc<Buffer>,
+    pub index_buffer: Arc<Buffer>,
     pub num_elements: u32,
     pub material: usize,
 }
@@ -96,6 +98,7 @@ pub struct Mesh {
 pub struct Model {
     pub meshes: Vec<Mesh>,
     pub materials: Vec<Material>,
+    pub mesh_colliders: Vec<TriMesh<f32>>,
 }
 
 impl Model {
@@ -130,6 +133,7 @@ impl Model {
         }
 
         let mut meshes = Vec::new();
+        let mut mesh_colliders = Vec::new();
         for m in obj_models {
             info!("Load mesh {:?}", m.name);
             let mut vertices = Vec::new();
@@ -160,19 +164,11 @@ impl Model {
                 let v1 = vertices[c[1] as usize];
                 let v2 = vertices[c[2] as usize];
 
-                let pos0: nalgebra::Vector3<_> = v0.position.into();
-                let pos1: nalgebra::Vector3<_> = v1.position.into();
-                let pos2: nalgebra::Vector3<_> = v2.position.into();
+                let delta_pos1 = v1.position - v0.position;
+                let delta_pos2 = v2.position - v0.position;
 
-                let uv0: nalgebra::Vector2<_> = v0.tex_coords.into();
-                let uv1: nalgebra::Vector2<_> = v1.tex_coords.into();
-                let uv2: nalgebra::Vector2<_> = v2.tex_coords.into();
-
-                let delta_pos1 = pos1 - pos0;
-                let delta_pos2 = pos2 - pos0;
-
-                let delta_uv1 = uv1 - uv0;
-                let delta_uv2 = uv2 - uv0;
+                let delta_uv1 = v1.tex_coords - v0.tex_coords;
+                let delta_uv2 = v2.tex_coords - v0.tex_coords;
 
                 let r = 1.0 / (delta_uv1.x * delta_uv2.y - delta_uv1.y * delta_uv2.x);
                 let tangent = (delta_pos1 * delta_uv2.y - delta_pos2 * delta_uv1.y) * r;
@@ -187,6 +183,20 @@ impl Model {
                 vertices[c[2] as usize].bitangent = bitangent.into();
             }
 
+            let shape = TriMesh::new(
+                vertices
+                    .iter()
+                    .map(|v| v.position.into())
+                    .collect::<Vec<_>>(),
+                indices
+                    .chunks(3)
+                    .map(|c| [c[0] as usize, c[1] as usize, c[2] as usize].into())
+                    .collect::<Vec<_>>(),
+                Some(vertices.iter().map(|v| v.tex_coords).collect::<Vec<_>>()),
+            );
+
+            mesh_colliders.push(shape);
+
             let vertex_buffer =
                 Buffer::new_init(state, m.name.as_str(), &vertices, BufferUsage::Vertex);
             let index_buffer =
@@ -194,14 +204,18 @@ impl Model {
 
             meshes.push(Mesh {
                 name: m.name,
-                vertex_buffer,
-                index_buffer,
+                vertex_buffer: Arc::new(vertex_buffer),
+                index_buffer: Arc::new(index_buffer),
                 num_elements: m.mesh.indices.len() as u32,
                 material: m.mesh.material_id.unwrap_or(0),
             });
         }
 
-        Ok(Self { meshes, materials })
+        Ok(Self {
+            meshes,
+            materials,
+            mesh_colliders,
+        })
     }
 }
 
