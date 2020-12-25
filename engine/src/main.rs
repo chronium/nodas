@@ -8,7 +8,7 @@ mod world;
 
 use futures::executor::block_on;
 
-use imgui::{im_str, Condition, FontSource};
+use imgui::{im_str, ComboBox, Condition, FontSource, ImStr, ImString};
 use imgui_inspect::{InspectArgsStruct, InspectRenderStruct};
 use inspect::IntoInspect;
 use log::info;
@@ -240,6 +240,12 @@ impl Engine {
 
         let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
         world.load_model(&state, &layouts, "block", res_dir.join("cube.obj"))?;
+        world.load_model(
+            &state,
+            &layouts,
+            "pizza_box",
+            res_dir.join("14037_Pizza_Box_v2_L1.obj"),
+        )?;
 
         world.push_entity((
             world::ModelIdent("block".into()),
@@ -347,11 +353,23 @@ impl Engine {
     }
 
     fn render(&mut self, dt: std::time::Duration) -> Result<(), wgpu::SwapChainError> {
+        struct UIData<'a> {
+            entry: Option<legion::world::Entry<'a>>,
+            models: Vec<String>,
+        }
+
         let mut encoder = self.state.encoder();
 
         let sc = self.state.frame()?.output;
 
         let raycast = self.world.raycast(&self.camera.ray(), 1024.0);
+
+        let models = self
+            .world
+            .models
+            .keys()
+            .map(|m| m.0.clone())
+            .collect::<Vec<_>>();
 
         let entry = if let Some(entity) = raycast {
             if let Some(entry) = self.world.entry(entity) {
@@ -362,6 +380,10 @@ impl Engine {
         } else {
             None
         };
+
+        let ui_data = UIData { entry, models };
+
+        let mut updated_transform = false;
 
         let ui = self.imgui.frame();
         {
@@ -385,31 +407,68 @@ impl Engine {
                         mouse_pos[1],
                     ));
 
-                    if let Some(mut entry) = entry {
-                        let transform = entry.get_component_mut::<transform::Transform>().ok();
-                        if let Some(mut transform) = transform {
-                            let mut inspect = transform.into_inspect();
-                            let init_inspect = inspect.clone();
-                            <inspect::InspectTransform as InspectRenderStruct<
-                                inspect::InspectTransform,
-                            >>::render_mut(
-                                &mut [&mut inspect],
-                                "transform",
-                                &ui,
-                                &InspectArgsStruct::default(),
-                            );
+                    if let Some(mut entry) = ui_data.entry {
+                        {
+                            let transform = entry.get_component_mut::<transform::Transform>().ok();
+                            if let Some(mut transform) = transform {
+                                let mut inspect = transform.into_inspect();
+                                let init_inspect = inspect.clone();
+                                <inspect::InspectTransform as InspectRenderStruct<
+                                    inspect::InspectTransform,
+                                >>::render_mut(
+                                    &mut [&mut inspect],
+                                    "transform",
+                                    &ui,
+                                    &InspectArgsStruct::default(),
+                                );
 
-                            if inspect != init_inspect {
-                                transform
-                                    .set_position(inspect.position())
-                                    .set_rotation(inspect.rotation())
-                                    .set_scale(inspect.scale());
+                                if inspect != init_inspect {
+                                    transform
+                                        .set_position(inspect.position())
+                                        .set_rotation(inspect.rotation())
+                                        .set_scale(inspect.scale());
+                                    updated_transform = true;
+                                    transform.dirty = true;
+                                }
                             }
+                        }
+                        {
+                            let model = entry.get_component_mut::<world::ModelIdent>().ok();
+                            if let Some(mut model) = model {
+                                let mut index = ui_data
+                                    .models
+                                    .iter()
+                                    .enumerate()
+                                    .find(|(_, m)| *m == &model.0)
+                                    .map(|(i, _)| i)
+                                    .expect("Must have model");
+                                let init = index;
+                                let imstrs = ui_data
+                                    .models
+                                    .iter()
+                                    .map(|m| im_str!("{}", m))
+                                    .collect::<Vec<_>>();
+                                ComboBox::new(im_str!("model")).build_simple(
+                                    &ui,
+                                    &mut index,
+                                    imstrs.as_slice(),
+                                    &|s: &ImString| s.into(),
+                                );
 
-                            transform.dirty = true;
+                                if init != index {
+                                    model.0 = ui_data.models[index].clone();
+                                    updated_transform = true;
+                                }
+                            }
                         }
                     }
                 });
+        }
+
+        if updated_transform {
+            self.world
+                .update_entity_world_transform(raycast.unwrap())
+                .expect("Internal err");
         }
 
         if self.mouse_pressed && !ui.is_any_item_hovered() {

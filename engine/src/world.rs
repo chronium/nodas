@@ -1,4 +1,6 @@
 use anyhow::*;
+use model::Model;
+use ncollide3d::pipeline::CollisionObjectSlabHandle;
 
 use std::{collections::HashMap, path::Path};
 
@@ -20,8 +22,10 @@ pub struct MaterialIdent(pub String);
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct CollisionGroup(usize);
 
+pub struct ColliderGroup(Vec<CollisionObjectSlabHandle>);
+
 pub struct World {
-    models: HashMap<ModelIdent, model::Model>,
+    pub models: HashMap<ModelIdent, model::Model>,
     materials: HashMap<MaterialIdent, model::Material>,
     world: legion::World,
     collision_world: ncollide3d::world::CollisionWorld<f32, legion::Entity>,
@@ -77,30 +81,63 @@ impl World {
         Option<T>: legion::storage::IntoComponentSource,
     {
         let entity = self.world.push(components);
+        self.world
+            .entry(entity)
+            .unwrap()
+            .add_component(ColliderGroup(Vec::new()));
 
-        if let Some(entry) = self.world.entry(entity) {
-            let transform = entry.get_component::<transform::Transform>()?;
-            let collision_groups =
-                entry.get_component::<ncollide3d::pipeline::object::CollisionGroups>();
+        if let Some(mut entry) = self.world.entry(entity) {
+            let isometry = entry.get_component::<transform::Transform>()?.isometry();
+            let scale = entry.get_component::<transform::Transform>()?.scale();
+            let collision_groups = entry
+                .get_component::<ncollide3d::pipeline::object::CollisionGroups>()
+                .ok()
+                .cloned();
             let model_ident = entry.get_component::<ModelIdent>()?;
             let model = self.models.get(model_ident).context("Cannot find model")?;
+            let collider_group = entry.get_component_mut::<ColliderGroup>()?;
 
             for collider in model.mesh_colliders.iter() {
-                self.collision_world.add(
-                    transform.isometry(),
-                    ncollide3d::shape::ShapeHandle::new(
-                        collider.clone().scaled(&transform.scale()),
-                    ),
-                    collision_groups
-                        .unwrap_or(&ncollide3d::pipeline::object::CollisionGroups::new())
-                        .clone(),
-                    ncollide3d::pipeline::object::GeometricQueryType::Contacts(0.0, 0.0),
-                    entity,
+                collider_group.0.push(
+                    self.collision_world
+                        .add(
+                            isometry,
+                            ncollide3d::shape::ShapeHandle::new(collider.clone().scaled(&scale)),
+                            collision_groups
+                                .unwrap_or(ncollide3d::pipeline::object::CollisionGroups::new())
+                                .clone(),
+                            ncollide3d::pipeline::object::GeometricQueryType::Contacts(0.0, 0.0),
+                            entity,
+                        )
+                        .0,
                 );
             }
         }
 
         Ok(entity)
+    }
+
+    pub fn update_entity_world_transform(&mut self, entity: legion::Entity) -> Result<()> {
+        if let Some(entry) = self.world.entry(entity) {
+            let transform = entry.get_component::<transform::Transform>()?;
+            let model_ident = entry.get_component::<ModelIdent>()?;
+            let model = self.models.get(model_ident).context("Cannot find model")?;
+            let colliders = entry.get_component::<ColliderGroup>()?;
+
+            for (i, handle) in colliders.0.iter().enumerate() {
+                self.collision_world
+                    .get_mut(*handle)
+                    .unwrap()
+                    .set_position(transform.isometry());
+                self.collision_world.get_mut(*handle).unwrap().set_shape(
+                    ncollide3d::shape::ShapeHandle::new(
+                        model.mesh_colliders[i].clone().scaled(&transform.scale()),
+                    ),
+                );
+            }
+        }
+
+        Ok(())
     }
 
     pub fn entry(&mut self, entity: legion::Entity) -> Option<legion::world::Entry> {

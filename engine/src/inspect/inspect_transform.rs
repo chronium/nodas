@@ -1,6 +1,6 @@
 use imgui::im_str;
 use imgui_inspect::InspectRenderStruct;
-use nalgebra::{Isometry3, Translation3, UnitQuaternion, Vector3};
+use nalgebra::{Isometry3, Rotation3, Translation3, UnitQuaternion, Vector3};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct InspectTransform {
@@ -38,11 +38,18 @@ impl InspectRenderStruct<InspectTransform> for InspectTransform {
 }
 
 impl InspectTransform {
-    pub fn new(isometry: Isometry3<f32>, scale: Vector3<f32>) -> Self {
-        let (x, y, z) = isometry.rotation.euler_angles();
+    pub fn new(
+        translation: Translation3<f32>,
+        rotation: Vector3<f32>,
+        scale: Vector3<f32>,
+    ) -> Self {
         Self {
-            position: isometry.translation.vector.into(),
-            rotation: [x.to_degrees(), y.to_degrees(), z.to_degrees()],
+            position: translation.vector.into(),
+            rotation: [
+                rotation.x.to_degrees(),
+                rotation.y.to_degrees(),
+                rotation.z.to_degrees(),
+            ],
             scale: scale.into(),
         }
     }
@@ -55,8 +62,8 @@ impl InspectTransform {
         ))
     }
 
-    pub fn rotation(&self) -> UnitQuaternion<f32> {
-        UnitQuaternion::from_euler_angles(
+    pub fn rotation(&self) -> Vector3<f32> {
+        Vector3::new(
             self.rotation[0].to_radians(),
             self.rotation[1].to_radians(),
             self.rotation[2].to_radians(),
