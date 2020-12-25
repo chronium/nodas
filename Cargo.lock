@@ -898,6 +898,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "imgui-inspect"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "882248527e6bf5783f673e2651f7626c93fa3095cb8001432e548c3df0439cf1"
+dependencies = [
+ "imgui",
+ "imgui-inspect-derive",
+]
+
+[[package]]
+name = "imgui-inspect-derive"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "003785f84313e3fe4b87797b0e87773eb486fcddc6c080eb0738e5d72137a145"
+dependencies = [
+ "darling",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "imgui-sys"
 version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2281,6 +2303,8 @@ dependencies = [
  "glob",
  "image",
  "imgui",
+ "imgui-inspect",
+ "imgui-inspect-derive",
  "imgui-wgpu",
  "imgui-winit-support",
  "legion",

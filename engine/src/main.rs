@@ -1,6 +1,7 @@
 #![feature(in_band_lifetimes, cell_update)]
 
 mod camera;
+mod inspect;
 mod render;
 mod transform;
 mod world;
@@ -8,6 +9,8 @@ mod world;
 use futures::executor::block_on;
 
 use imgui::{im_str, Condition, FontSource};
+use imgui_inspect::{InspectArgsStruct, InspectRenderStruct};
+use inspect::IntoInspect;
 use log::info;
 use render::{
     binding, frame, model, renderpass, state, texture,
@@ -244,7 +247,7 @@ impl Engine {
         ))?;
 
         let mut transform = transform::Transform::new(&state, "block_transform");
-        transform.position(nalgebra::Translation3::new(-2.5, 0.0, 0.0));
+        transform.set_position(nalgebra::Translation3::new(-2.5, 0.0, 0.0));
         world.push_entity((world::ModelIdent("block".into()), transform))?;
 
         world.update_collision_world();
@@ -348,7 +351,17 @@ impl Engine {
 
         let sc = self.state.frame()?.output;
 
-        let raycast = self.world.raycast(&self.camera.ray(), 1024.0).is_some();
+        let raycast = self.world.raycast(&self.camera.ray(), 1024.0);
+
+        let entry = if let Some(entity) = raycast {
+            if let Some(entry) = self.world.entry(entity) {
+                Some(entry)
+            } else {
+                None
+            }
+        } else {
+            None
+        };
 
         let ui = self.imgui.frame();
         {
@@ -371,7 +384,31 @@ impl Engine {
                         mouse_pos[0],
                         mouse_pos[1],
                     ));
-                    ui.text(im_str!("Hit: {}", raycast));
+
+                    if let Some(mut entry) = entry {
+                        let transform = entry.get_component_mut::<transform::Transform>().ok();
+                        if let Some(mut transform) = transform {
+                            let mut inspect = transform.into_inspect();
+                            let init_inspect = inspect.clone();
+                            <inspect::InspectTransform as InspectRenderStruct<
+                                inspect::InspectTransform,
+                            >>::render_mut(
+                                &mut [&mut inspect],
+                                "transform",
+                                &ui,
+                                &InspectArgsStruct::default(),
+                            );
+
+                            if inspect != init_inspect {
+                                transform
+                                    .set_position(inspect.position())
+                                    .set_rotation(inspect.rotation())
+                                    .set_scale(inspect.scale());
+                            }
+
+                            transform.dirty = true;
+                        }
+                    }
                 });
         }
 

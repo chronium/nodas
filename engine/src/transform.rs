@@ -1,6 +1,9 @@
-use nalgebra::{Isometry3, Matrix4, Translation3, Vector3};
+use nalgebra::{Isometry3, Matrix4, Translation3, UnitQuaternion, Vector3};
 
-use crate::render::{binding, state};
+use crate::{
+    inspect::{InspectTransform, IntoInspect},
+    render::{binding, state},
+};
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -47,7 +50,15 @@ pub struct Transform {
     transform: Isometry3<f32>,
     scale: Vector3<f32>,
     buffer: binding::Buffer,
-    dirty: bool,
+    pub dirty: bool,
+}
+
+impl IntoInspect for crate::transform::Transform {
+    type Output = InspectTransform;
+
+    fn into_inspect(&self) -> Self::Output {
+        Self::Output::new(self.transform, self.scale.into())
+    }
 }
 
 impl Transform {
@@ -78,9 +89,22 @@ impl Transform {
         self.scale
     }
 
-    pub fn position(&mut self, position: Translation3<f32>) {
+    pub fn set_position(&mut self, position: Translation3<f32>) -> &mut Self {
         self.dirty = true;
         self.transform.translation = position;
+        self
+    }
+
+    pub fn set_rotation(&mut self, rotation: UnitQuaternion<f32>) -> &mut Self {
+        self.dirty = true;
+        self.transform.rotation = rotation;
+        self
+    }
+
+    pub fn set_scale(&mut self, scale: Vector3<f32>) -> &mut Self {
+        self.dirty = true;
+        self.scale = scale;
+        self
     }
 
     pub fn buffer(&mut self, state: &state::WgpuState) -> &binding::Buffer {

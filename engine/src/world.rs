@@ -103,6 +103,10 @@ impl World {
         Ok(entity)
     }
 
+    pub fn entry(&mut self, entity: legion::Entity) -> Option<legion::world::Entry> {
+        self.world.entry(entity)
+    }
+
     pub fn update_collision_world(&mut self) {
         self.collision_world.update();
     }
