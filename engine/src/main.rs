@@ -8,13 +8,14 @@ mod world;
 
 use futures::executor::block_on;
 
-use imgui::{im_str, ComboBox, Condition, FontSource, ImStr, ImString};
+use imgui::{im_str, ComboBox, Condition, FontSource, ImString};
 use imgui_inspect::{InspectArgsStruct, InspectRenderStruct};
 use inspect::IntoInspect;
 use log::info;
+use nalgebra::Matrix4;
 use render::{
     binding, frame, model, renderpass, state, texture,
-    traits::{DrawFramebuffer, DrawLight, Vertex},
+    traits::{DrawFramebuffer, DrawGrid, DrawLight, Vertex},
 };
 use winit::{
     dpi::LogicalPosition,
@@ -41,6 +42,7 @@ unsafe impl bytemuck::Zeroable for Light {}
 struct Uniforms {
     view_position: nalgebra::Vector4<f32>,
     view_proj: nalgebra::Matrix4<f32>,
+    view: nalgebra::Matrix4<f32>,
 }
 
 unsafe impl bytemuck::Pod for Uniforms {}
@@ -51,12 +53,14 @@ impl Uniforms {
         Self {
             view_position: nalgebra::zero(),
             view_proj: nalgebra::Matrix4::identity(),
+            view: nalgebra::Matrix4::identity(),
         }
     }
 
     fn update_view_proj(&mut self, camera: &camera::Camera) {
         self.view_position = camera.eye.to_homogeneous();
         self.view_proj = camera.view_proj;
+        self.view = camera.view_transform().to_homogeneous();
     }
 }
 
@@ -85,6 +89,7 @@ struct Engine {
     framebuffer: frame::Framebuffer,
     layouts: render::Layouts,
     world: world::World,
+    grid: render::grid::Grid,
 }
 
 impl Engine {
@@ -99,6 +104,7 @@ impl Engine {
             uniforms: render::uniforms_layout(&state),
             light: render::light_layout(&state),
             frame: render::frame_layout(&state),
+            grid: render::grid_layout(&state),
         };
 
         let camera = camera::Camera::new(
@@ -151,16 +157,20 @@ impl Engine {
         let depth_layout =
             state.create_pipeline_layout("depth", &[&layouts.frame, &layouts.uniforms])?;
 
+        let grid_layout =
+            state.create_pipeline_layout("grid", &[&layouts.uniforms, &layouts.grid])?;
+
         let forward = state.create_render_pipeline(
             &forward_layout,
             "forward_pipeline",
             state.format(),
             wgpu::BlendDescriptor::REPLACE,
             wgpu::BlendDescriptor::REPLACE,
-            texture::Texture::DEPTH_FORMAT,
+            (texture::Texture::DEPTH_FORMAT, true),
             &[model::ModelVertex::desc(), transform::InstanceRaw::desc()],
             "shader.vert.spv",
             "shader.frag.spv",
+            true,
         )?;
 
         let light_pipeline = state.create_render_pipeline(
@@ -169,10 +179,11 @@ impl Engine {
             state.format(),
             wgpu::BlendDescriptor::REPLACE,
             wgpu::BlendDescriptor::REPLACE,
-            texture::Texture::DEPTH_FORMAT,
+            (texture::Texture::DEPTH_FORMAT, true),
             &[model::ModelVertex::desc()],
             "light.vert.spv",
             "light.frag.spv",
+            true,
         )?;
 
         let depth_pipeline = state.create_render_pipeline(
@@ -185,12 +196,35 @@ impl Engine {
             &[frame::FrameVertex::desc()],
             "depth_frame.vert.spv",
             "depth_frame.frag.spv",
+            true,
+        )?;
+
+        let grid_pipeline = state.create_render_pipeline(
+            &grid_layout,
+            "grid_pipeline",
+            state.format(),
+            wgpu::BlendDescriptor {
+                src_factor: wgpu::BlendFactor::SrcAlpha,
+                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                operation: wgpu::BlendOperation::Add,
+            },
+            wgpu::BlendDescriptor {
+                src_factor: wgpu::BlendFactor::SrcAlpha,
+                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
+                operation: wgpu::BlendOperation::Add,
+            },
+            (texture::Texture::DEPTH_FORMAT, false),
+            &[render::grid::GridVertex::desc()],
+            "grid.vert.spv",
+            "grid.frag.spv",
+            false,
         )?;
 
         let pipelines = render::Pipelines {
             forward,
             light: light_pipeline,
             depth: depth_pipeline,
+            grid: grid_pipeline,
         };
 
         let res_dir = std::path::Path::new(env!("OUT_DIR")).join("res");
@@ -258,6 +292,8 @@ impl Engine {
 
         world.update_collision_world();
 
+        let grid = render::grid::Grid::new(&state, "grid", &layouts.grid);
+
         Ok(Self {
             window,
             state,
@@ -283,6 +319,7 @@ impl Engine {
             framebuffer,
             layouts,
             world,
+            grid,
         })
     }
 
@@ -511,6 +548,9 @@ impl Engine {
 
             render_pass.set_pipeline(&self.pipelines.light);
             render_pass.draw_light_model(&self.obj_model, &self.uniform_group, &self.light_group);
+
+            render_pass.set_pipeline(&self.pipelines.grid);
+            render_pass.draw_grid(&self.grid, &self.uniform_group);
         }
 
         {

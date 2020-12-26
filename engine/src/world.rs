@@ -1,5 +1,4 @@
 use anyhow::*;
-use model::Model;
 use ncollide3d::pipeline::CollisionObjectSlabHandle;
 
 use std::{collections::HashMap, path::Path};

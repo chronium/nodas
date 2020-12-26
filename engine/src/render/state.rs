@@ -95,7 +95,7 @@ impl WgpuState {
 
     pub fn create_render_pipeline<
         P: AsRef<Path>,
-        D: Into<Option<wgpu::TextureFormat>>,
+        D: Into<Option<(wgpu::TextureFormat, bool)>>,
         T: Into<Option<&'a str>>,
     >(
         &self,
@@ -108,6 +108,7 @@ impl WgpuState {
         vertex_descs: &[wgpu::VertexBufferDescriptor],
         vertex_shader: P,
         fragment_shader: P,
+        cull_face: bool,
     ) -> Result<wgpu::RenderPipeline> {
         let pipeline = pipeline.into();
         info!("Init render pipeline {:?}", &pipeline.unwrap_or(""));
@@ -146,7 +147,11 @@ impl WgpuState {
                 }),
                 rasterization_state: Some(wgpu::RasterizationStateDescriptor {
                     front_face: wgpu::FrontFace::Ccw,
-                    cull_mode: wgpu::CullMode::Back,
+                    cull_mode: if !cull_face {
+                        wgpu::CullMode::None
+                    } else {
+                        wgpu::CullMode::Back
+                    },
                     depth_bias: 2,
                     depth_bias_slope_scale: 2.0,
                     depth_bias_clamp: 0.0,
@@ -162,10 +167,10 @@ impl WgpuState {
                     alpha_blend,
                     write_mask: wgpu::ColorWrite::ALL,
                 }],
-                depth_stencil_state: depth_format.into().map(|format| {
+                depth_stencil_state: depth_format.into().map(|(format, write)| {
                     wgpu::DepthStencilStateDescriptor {
                         format,
-                        depth_write_enabled: true,
+                        depth_write_enabled: write,
                         depth_compare: wgpu::CompareFunction::Less,
                         stencil: wgpu::StencilStateDescriptor::default(),
                     }

@@ -13,7 +13,7 @@ pub struct Camera {
     pitch: f32,
 
     projection: Projection,
-    view: Matrix4<f32>,
+    pub view: Matrix4<f32>,
 
     coord_system: CoordSystemRh,
 

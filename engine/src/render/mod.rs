@@ -1,5 +1,6 @@
 pub mod binding;
 pub mod frame;
+pub mod grid;
 pub mod model;
 pub mod renderpass;
 pub mod state;
@@ -11,12 +12,14 @@ pub struct Layouts {
     pub uniforms: wgpu::BindGroupLayout,
     pub light: wgpu::BindGroupLayout,
     pub frame: wgpu::BindGroupLayout,
+    pub grid: wgpu::BindGroupLayout,
 }
 
 pub struct Pipelines {
     pub forward: wgpu::RenderPipeline,
     pub light: wgpu::RenderPipeline,
     pub depth: wgpu::RenderPipeline,
+    pub grid: wgpu::RenderPipeline,
 }
 
 pub fn frame_layout(state: &state::WgpuState) -> wgpu::BindGroupLayout {
@@ -101,6 +104,21 @@ pub fn uniforms_layout(state: &state::WgpuState) -> wgpu::BindGroupLayout {
 pub fn light_layout(state: &state::WgpuState) -> wgpu::BindGroupLayout {
     state.create_layout(
         "light",
+        &[wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,
+            ty: wgpu::BindingType::UniformBuffer {
+                dynamic: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    )
+}
+
+pub fn grid_layout(state: &state::WgpuState) -> wgpu::BindGroupLayout {
+    state.create_layout(
+        "grid",
         &[wgpu::BindGroupLayoutEntry {
             binding: 0,
             visibility: wgpu::ShaderStage::VERTEX | wgpu::ShaderStage::FRAGMENT,

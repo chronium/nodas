@@ -1,6 +1,6 @@
 use imgui::im_str;
 use imgui_inspect::InspectRenderStruct;
-use nalgebra::{Isometry3, Rotation3, Translation3, UnitQuaternion, Vector3};
+use nalgebra::{Translation3, Vector3};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct InspectTransform {

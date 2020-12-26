@@ -7,7 +7,7 @@ use super::{
 };
 
 #[repr(C)]
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone)]
 pub struct FrameVertex {
     position: nalgebra::Vector3<f32>,
     tex_coords: nalgebra::Vector2<f32>,

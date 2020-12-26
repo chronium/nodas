@@ -3,6 +3,7 @@ use std::ops::Range;
 use super::{
     binding::{self, Buffer, BufferGroup, TextureBinding},
     frame::Framebuffer,
+    grid::Grid,
     model::{Material, Mesh, Model},
 };
 
@@ -112,4 +113,11 @@ where
     'b: 'a,
 {
     fn draw_framebuffer(&mut self, frame: &'b Framebuffer, uniforms: &'b binding::BufferGroup);
+}
+
+pub trait DrawGrid<'a, 'b>
+where
+    'b: 'a,
+{
+    fn draw_grid(&mut self, grid: &'b Grid, uniforms: &'b binding::BufferGroup);
 }
