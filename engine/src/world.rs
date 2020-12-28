@@ -21,7 +21,7 @@ pub struct MaterialIdent(pub String);
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct CollisionGroup(usize);
 
-pub struct ColliderGroup(Vec<CollisionObjectSlabHandle>);
+pub struct Collider(Option<CollisionObjectSlabHandle>);
 
 pub struct World {
     pub models: HashMap<ModelIdent, model::Model>,
@@ -83,7 +83,7 @@ impl World {
         self.world
             .entry(entity)
             .unwrap()
-            .add_component(ColliderGroup(Vec::new()));
+            .add_component(Collider(None));
 
         if let Some(mut entry) = self.world.entry(entity) {
             let isometry = entry.get_component::<transform::Transform>()?.isometry();
@@ -94,23 +94,21 @@ impl World {
                 .cloned();
             let model_ident = entry.get_component::<ModelIdent>()?;
             let model = self.models.get(model_ident).context("Cannot find model")?;
-            let collider_group = entry.get_component_mut::<ColliderGroup>()?;
+            let collider_group = entry.get_component_mut::<Collider>()?;
 
-            for collider in model.mesh_colliders.iter() {
-                collider_group.0.push(
-                    self.collision_world
-                        .add(
-                            isometry,
-                            ncollide3d::shape::ShapeHandle::new(collider.clone().scaled(&scale)),
-                            collision_groups
-                                .unwrap_or(ncollide3d::pipeline::object::CollisionGroups::new())
-                                .clone(),
-                            ncollide3d::pipeline::object::GeometricQueryType::Contacts(0.0, 0.0),
-                            entity,
-                        )
-                        .0,
-                );
-            }
+            collider_group.0.replace(
+                self.collision_world
+                    .add(
+                        isometry,
+                        ncollide3d::shape::ShapeHandle::new(model.geometry.scaled(scale)),
+                        collision_groups
+                            .unwrap_or(ncollide3d::pipeline::object::CollisionGroups::new())
+                            .clone(),
+                        ncollide3d::pipeline::object::GeometricQueryType::Contacts(0.0, 0.0),
+                        entity,
+                    )
+                    .0,
+            );
         }
 
         Ok(entity)
@@ -121,19 +119,20 @@ impl World {
             let transform = entry.get_component::<transform::Transform>()?;
             let model_ident = entry.get_component::<ModelIdent>()?;
             let model = self.models.get(model_ident).context("Cannot find model")?;
-            let colliders = entry.get_component::<ColliderGroup>()?;
+            let collider = entry
+                .get_component::<Collider>()?
+                .0
+                .context("Cannot find collider")?;
 
-            for (i, handle) in colliders.0.iter().enumerate() {
-                self.collision_world
-                    .get_mut(*handle)
-                    .unwrap()
-                    .set_position(transform.isometry());
-                self.collision_world.get_mut(*handle).unwrap().set_shape(
-                    ncollide3d::shape::ShapeHandle::new(
-                        model.mesh_colliders[i].clone().scaled(&transform.scale()),
-                    ),
-                );
-            }
+            let collision_object = self
+                .collision_world
+                .get_mut(collider)
+                .context("No collision object in world")?;
+
+            collision_object.set_position(transform.isometry());
+            collision_object.set_shape(ncollide3d::shape::ShapeHandle::new(
+                model.geometry.scaled(transform.scale()),
+            ));
         }
 
         Ok(())

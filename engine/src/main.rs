@@ -434,6 +434,8 @@ impl Engine {
                 .position([0.0, 0.0], Condition::Always)
                 .draw_background(false)
                 .menu_bar(false)
+                .bring_to_front_on_focus(false)
+                .mouse_inputs(false)
                 .build(&ui, || {
                     ui.text(im_str!("FPS: {}", (1.0 / dt.as_secs_f32()).round()));
                     ui.separator();
@@ -444,60 +446,68 @@ impl Engine {
                         mouse_pos[1],
                     ));
 
-                    if let Some(mut entry) = ui_data.entry {
-                        {
-                            let transform = entry.get_component_mut::<transform::Transform>().ok();
-                            if let Some(mut transform) = transform {
-                                let mut inspect = transform.into_inspect();
-                                let init_inspect = inspect.clone();
-                                <inspect::InspectTransform as InspectRenderStruct<
-                                    inspect::InspectTransform,
-                                >>::render_mut(
-                                    &mut [&mut inspect],
-                                    "transform",
-                                    &ui,
-                                    &InspectArgsStruct::default(),
-                                );
+                    if ui_data.entry.is_some() {
+                        let inspect_window = imgui::Window::new(im_str!("Inspect"));
 
-                                if inspect != init_inspect {
-                                    transform
-                                        .set_position(inspect.position())
-                                        .set_rotation(inspect.rotation())
-                                        .set_scale(inspect.scale());
-                                    updated_transform = true;
-                                    transform.dirty = true;
+                        inspect_window.always_auto_resize(true).build(&ui, || {
+                            if let Some(mut entry) = ui_data.entry {
+                                {
+                                    let transform =
+                                        entry.get_component_mut::<transform::Transform>().ok();
+                                    if let Some(mut transform) = transform {
+                                        let mut inspect = transform.into_inspect();
+                                        let init_inspect = inspect.clone();
+                                        <inspect::InspectTransform as InspectRenderStruct<
+                                            inspect::InspectTransform,
+                                        >>::render_mut(
+                                            &mut [&mut inspect],
+                                            "Transform",
+                                            &ui,
+                                            &InspectArgsStruct::default(),
+                                        );
+
+                                        if inspect != init_inspect {
+                                            transform
+                                                .set_position(inspect.position())
+                                                .set_rotation(inspect.rotation())
+                                                .set_scale(inspect.scale());
+                                            updated_transform = true;
+                                            transform.dirty = true;
+                                        }
+                                    }
+                                }
+                                {
+                                    ui.text("Model");
+                                    let model = entry.get_component_mut::<world::ModelIdent>().ok();
+                                    if let Some(mut model) = model {
+                                        let mut index = ui_data
+                                            .models
+                                            .iter()
+                                            .enumerate()
+                                            .find(|(_, m)| *m == &model.0)
+                                            .map(|(i, _)| i)
+                                            .expect("Must have model");
+                                        let init = index;
+                                        let imstrs = ui_data
+                                            .models
+                                            .iter()
+                                            .map(|m| im_str!("{}", m))
+                                            .collect::<Vec<_>>();
+                                        ComboBox::new(im_str!("model")).build_simple(
+                                            &ui,
+                                            &mut index,
+                                            imstrs.as_slice(),
+                                            &|s: &ImString| s.into(),
+                                        );
+
+                                        if init != index {
+                                            model.0 = ui_data.models[index].clone();
+                                            updated_transform = true;
+                                        }
+                                    }
                                 }
                             }
-                        }
-                        {
-                            let model = entry.get_component_mut::<world::ModelIdent>().ok();
-                            if let Some(mut model) = model {
-                                let mut index = ui_data
-                                    .models
-                                    .iter()
-                                    .enumerate()
-                                    .find(|(_, m)| *m == &model.0)
-                                    .map(|(i, _)| i)
-                                    .expect("Must have model");
-                                let init = index;
-                                let imstrs = ui_data
-                                    .models
-                                    .iter()
-                                    .map(|m| im_str!("{}", m))
-                                    .collect::<Vec<_>>();
-                                ComboBox::new(im_str!("model")).build_simple(
-                                    &ui,
-                                    &mut index,
-                                    imstrs.as_slice(),
-                                    &|s: &ImString| s.into(),
-                                );
-
-                                if init != index {
-                                    model.0 = ui_data.models[index].clone();
-                                    updated_transform = true;
-                                }
-                            }
-                        }
+                        });
                     }
                 });
         }
@@ -508,7 +518,7 @@ impl Engine {
                 .expect("Internal err");
         }
 
-        if self.mouse_pressed && !ui.is_any_item_hovered() {
+        if self.mouse_pressed && !ui.io().want_capture_mouse {
             let mouse_dx = self.current_mouse_pos.x - self.last_mouse_pos.x;
             let mouse_dy = self.current_mouse_pos.y - self.last_mouse_pos.y;
             self.camera_controller.process_mouse(mouse_dx, mouse_dy);
